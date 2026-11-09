@@ -46,18 +46,18 @@ pub fn layout_for(a: Rect, lyrics_on: bool) -> MusicLayout {
     let col_x = a.x + 96.0;
     let col_w = left_w - 96.0;
     let cx = col_x + col_w / 2.0;
-    let yc = a.y + 66.0;
+    let yc = a.y + 69.0;
     MusicLayout {
         cover: Rect { x: a.x, y: a.y + 3.0, w: 80.0, h: 80.0 },
         title: Rect { x: col_x, y: a.y, w: col_w - 52.0, h: 18.0 },
         lyrics_btn: Rect { x: col_x + col_w - 46.0, y: a.y, w: 46.0, h: 18.0 },
         artist: Rect { x: col_x, y: a.y + 18.0, w: col_w - 52.0, h: 16.0 },
-        elapsed: Rect { x: col_x, y: a.y + 40.0, w: 36.0, h: 14.0 },
-        bar: Rect { x: col_x + 40.0, y: a.y + 45.0, w: col_w - 80.0, h: 4.0 },
-        total: Rect { x: col_x + col_w - 36.0, y: a.y + 40.0, w: 36.0, h: 14.0 },
-        prev: (cx - 46.0, yc),
+        elapsed: Rect { x: col_x, y: a.y + 36.0, w: 36.0, h: 14.0 },
+        bar: Rect { x: col_x + 40.0, y: a.y + 41.0, w: col_w - 80.0, h: 4.0 },
+        total: Rect { x: col_x + col_w - 36.0, y: a.y + 36.0, w: 36.0, h: 14.0 },
+        prev: (cx - 56.0, yc),
         play: (cx, yc),
-        next: (cx + 46.0, yc),
+        next: (cx + 56.0, yc),
     }
 }
 
@@ -97,7 +97,7 @@ pub fn hit_for(a: Rect, lyrics_on: bool, x: f32, y: f32) -> Option<MusicHit> {
         return Some(MusicHit::Next);
     }
     let b = l.bar;
-    if x >= b.x - 2.0 && x <= b.x + b.w + 2.0 && (y - (b.y + b.h / 2.0)).abs() <= 8.0 {
+    if x >= b.x - 2.0 && x <= b.x + b.w + 2.0 && (y - (b.y + b.h / 2.0)).abs() <= 6.0 {
         return Some(MusicHit::Seek(((x - b.x) / b.w).clamp(0.0, 1.0)));
     }
     None
