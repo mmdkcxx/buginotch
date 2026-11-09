@@ -2,6 +2,7 @@
 //! Keyboard text input for the notch: key mapping, the clipboard and IME composition.
 
 use isle_logic::module::{Composition, EditKey, Event};
+use windows::core::{PCWSTR, w};
 use windows::Win32::{
     Foundation::*,
     System::DataExchange::*,
@@ -58,6 +59,64 @@ pub fn read_clipboard(hwnd: HWND) -> Option<String> {
             let _ = GlobalUnlock(global);
             Some(s)
         })();
+        let _ = CloseClipboard();
+        text
+    }
+}
+
+/// The clipboard's text for the history, or None when it holds none or the app that copied
+/// it asked not to be recorded (password managers do). Another app may hold the clipboard
+/// for a moment, so opening is retried briefly.
+pub fn clipboard_for_history(hwnd: HWND) -> Option<String> {
+    unsafe {
+        let mut opened = false;
+        for _ in 0..8 {
+            if OpenClipboard(Some(hwnd)).is_ok() {
+                opened = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        if !opened {
+            return None;
+        }
+        let excluded = |name: PCWSTR| {
+            let f = RegisterClipboardFormatW(name);
+            f != 0 && IsClipboardFormatAvailable(f).is_ok()
+        };
+        let private = excluded(w!("ExcludeClipboardContentFromMonitorProcessing"))
+            || (|| {
+                // "CanIncludeInClipboardHistory" holds a DWORD; 0 means keep it out.
+                let f = RegisterClipboardFormatW(w!("CanIncludeInClipboardHistory"));
+                if f == 0 || IsClipboardFormatAvailable(f).is_err() {
+                    return false;
+                }
+                let Ok(h) = GetClipboardData(f) else { return false };
+                let g = HGLOBAL(h.0);
+                let p = GlobalLock(g) as *const u32;
+                let zero = !p.is_null() && *p == 0;
+                let _ = GlobalUnlock(g);
+                zero
+            })();
+        let text = if private || IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
+            None
+        } else {
+            (|| {
+                let handle = GetClipboardData(CF_UNICODETEXT).ok()?;
+                let global = HGLOBAL(handle.0);
+                let ptr = GlobalLock(global) as *const u16;
+                if ptr.is_null() {
+                    return None;
+                }
+                let mut len = 0;
+                while *ptr.add(len) != 0 && len < 100_000 {
+                    len += 1;
+                }
+                let s = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+                let _ = GlobalUnlock(global);
+                Some(s)
+            })()
+        };
         let _ = CloseClipboard();
         text
     }

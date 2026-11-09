@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule, clipboard::ClipboardModule};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
@@ -70,6 +70,7 @@ impl App {
         registry.add(Box::new(ChargingModule::new()));
                 registry.add(Box::new(TimerModule::new(settings.pomodoro.clone())));
         registry.add(Box::new(TodoModule::new()));
+        registry.add(Box::new(ClipboardModule::new()));
         App {
             registry,
             settings,
@@ -248,6 +249,16 @@ impl App {
         let body = ui::page_area(Rect { x: 0.0, y: 0.0, w, h });
         let (cx, cy) = self.registry.current_page()?.text_caret()?;
         Some((body.x + cx, body.y + cy))
+    }
+
+    /// A new clipboard text arrived; returns whether to redraw.
+    pub fn clipboard_changed(&mut self, text: &str) -> bool {
+        self.registry.clipboard_changed(text, epoch_ms())
+    }
+
+    /// Text a page asked to copy during the last click.
+    pub fn take_copy(&mut self) -> Option<String> {
+        self.registry.take_copy()
     }
 
     pub fn page_reaction(&mut self, e: &Event) -> Reaction {

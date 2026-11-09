@@ -5,11 +5,10 @@
 use crate::system::{data_path, epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
 use isle_logic::module::{EditKey, Event, Module, PillItem, Reaction};
-use isle_logic::text_edit::TextEdit;
+use super::textbox::TextBox;
 use isle_logic::peek::Peek;
 use isle_logic::todo::{TodoList, day_number, from_json, to_json};
 use isle_logic::todo_layout::{DELETE_W, TodoHit, ROW_GAP, ROW_H, hit, layout, max_scroll, row_rect};
-use std::cell::Cell;
 use std::collections::HashMap;
 
 const WHITE: Color = Color(245, 246, 248, 255);
@@ -31,22 +30,14 @@ pub struct TodoModule {
     list: TodoList,
     adding: bool,
     editing: bool,
-    field: TextEdit,
-    /// Horizontal scroll of the text inside the box, to keep the caret visible.
-    hscroll: f32,
+    field: TextBox,
     scroll: f32,
-    dragging_field: bool,
-    blink_from: i64,
     /// Tick animations: task id -> (start ms, ticking on).
     ticks: HashMap<u64, (i64, bool)>,
-    /// Where the caret was last drawn, relative to the page area.
-    caret: Cell<Option<(f32, f32)>>,
     day: i32,
     anim_until: i64,
     /// A due reminder shown in the closed pill.
     peek: Peek,
-    /// Average char width of the text box, from the last draw (for mapping clicks).
-    last_avg: Cell<f32>,
 }
 
 fn today() -> i32 {
@@ -61,7 +52,7 @@ impl TodoModule {
         if list.prune(day) {
             save(&list);
         }
-        Self { list, adding: false, editing: false, field: TextEdit::new(isle_logic::todo::MAX_TASK_CHARS), hscroll: 0.0, scroll: 0.0, dragging_field: false, blink_from: 0, ticks: HashMap::new(), caret: Cell::new(None), day, anim_until: 0, peek: Peek::default(), last_avg: Cell::new(7.0) }
+        Self { list, adding: false, editing: false, field: TextBox::new(isle_logic::todo::MAX_TASK_CHARS), scroll: 0.0, ticks: HashMap::new(), day, anim_until: 0, peek: Peek::default() }
     }
 
     fn save(&self) {
@@ -71,14 +62,12 @@ impl TodoModule {
     fn start_adding(&mut self, now: i64) {
         self.adding = true;
         self.editing = false;
-        self.blink_from = now;
+        self.field.touch(now);
     }
 
     fn stop_adding(&mut self) {
         self.adding = false;
         self.field.clear();
-        self.hscroll = 0.0;
-        self.dragging_field = false;
     }
 
     fn tick_progress(&self, id: u64, done: bool, now: i64) -> f32 {
@@ -133,7 +122,7 @@ impl Module for TodoModule {
         self.adding
     }
     fn text_caret(&self) -> Option<(f32, f32)> {
-        self.caret.get()
+        self.field.caret()
     }
     fn pill_center(&self) -> Option<String> {
         self.peek.current(epoch_ms()).map(str::to_string)
@@ -174,9 +163,9 @@ impl Module for TodoModule {
         chip(c, l.add, if self.adding { "Batal" } else { "+ Tambah" }, false);
         chip(c, l.edit, if self.editing { "Selesai" } else { "Ubah" }, self.editing);
 
-        self.caret.set(None);
+        self.field.hide_caret();
         if self.adding {
-            self.draw_field(c, l.field, area, now_ms);
+            self.field.draw(c, l.field, area, "Tugas baru, atau 14:30 Rapat", true, now_ms);
         }
 
         let max = max_scroll(&l, self.list.tasks().len());
@@ -255,10 +244,7 @@ impl Module for TodoModule {
                     }
                     Some(TodoHit::Field) => {
                         let l = layout(area, true);
-                        let i = self.field_index_at(*x - (l.field.x + 10.0) + self.hscroll);
-                        self.field.set_caret(i, false);
-                        self.dragging_field = true;
-                        self.blink_from = now_ms;
+                        self.field.pointer_down(*x, l.field, now_ms);
                     }
                     Some(TodoHit::Row(i)) => {
                         let (id, was_done) = (self.list.tasks()[i].id, self.list.tasks()[i].done);
@@ -276,14 +262,12 @@ impl Module for TodoModule {
                 }
                 Reaction::Redraw
             }
-            Event::PointerDrag(x, _) if self.dragging_field => {
+            Event::PointerDrag(x, _) if self.adding => {
                 let l = layout(area, true);
-                let i = self.field_index_at(*x - (l.field.x + 10.0) + self.hscroll);
-                self.field.set_caret(i, true);
-                Reaction::Redraw
+                if self.field.pointer_drag(*x, l.field) { Reaction::Redraw } else { Reaction::None }
             }
             Event::PointerUp(..) => {
-                self.dragging_field = false;
+                self.field.pointer_up();
                 Reaction::None
             }
             Event::PointerWheel(steps) => {
@@ -292,107 +276,30 @@ impl Module for TodoModule {
                 Reaction::Redraw
             }
             _ if !self.adding => Reaction::None,
-            Event::Text(s) => {
-                self.field.insert(s);
-                self.blink_from = now_ms;
-                Reaction::Redraw
-            }
-            Event::Compose(c) => {
-                self.field.set_composition(c.clone());
-                Reaction::Redraw
-            }
-            Event::Shortcut(k) => {
-                self.blink_from = now_ms;
-                match k {
-                    'a' => {
-                        self.field.select_all();
-                        Reaction::Redraw
-                    }
-                    'c' => self.field.selected_text().map_or(Reaction::None, Reaction::Copy),
-                    'x' => self.field.cut().map_or(Reaction::None, Reaction::Copy),
-                    _ => Reaction::None,
+            Event::Edit { key: EditKey::Enter, .. } => {
+                self.field.touch(now_ms);
+                if self.list.add(self.field.text()).is_some() {
+                    self.save();
+                    self.scroll = 0.0;
                 }
-            }
-            Event::Edit { key, shift } => {
-                self.blink_from = now_ms;
-                match key {
-                    EditKey::Backspace => self.field.backspace(),
-                    EditKey::Delete => self.field.delete(),
-                    EditKey::Left => self.field.move_left(*shift),
-                    EditKey::Right => self.field.move_right(*shift),
-                    EditKey::Home => self.field.home(*shift),
-                    EditKey::End => self.field.end(*shift),
-                    EditKey::Enter => {
-                        if self.list.add(self.field.text()).is_some() {
-                            self.save();
-                            self.scroll = 0.0;
-                        }
-                        self.field.clear();
-                        self.hscroll = 0.0;
-                    }
-                    EditKey::Escape => self.stop_adding(),
-                }
+                self.field.clear();
                 Reaction::Redraw
             }
-            _ => Reaction::None,
+            Event::Edit { key: EditKey::Escape, .. } => {
+                self.stop_adding();
+                Reaction::Redraw
+            }
+            _ => self.field.on_event(e, now_ms).unwrap_or(Reaction::None),
         }
     }
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
-        let blink = self.adding.then(|| now_ms + BLINK_MS - (now_ms - self.blink_from).rem_euclid(BLINK_MS));
+        let blink = self.adding.then(|| self.field.next_blink_ms(now_ms));
         let anim = (now_ms < self.anim_until).then_some(now_ms + 16);
         // Look again at the start of each minute while a reminder is waiting.
         let waiting = self.list.tasks().iter().any(|t| !t.done && t.due.is_some());
         let minute = waiting.then(|| now_ms + 60_000 - now_ms.rem_euclid(60_000) + 200);
         let shown = self.peek.next_wake_ms().filter(|&t| t > now_ms);
         [blink, anim, minute, shown].into_iter().flatten().min()
-    }
-}
-
-impl TodoModule {
-    /// Char index nearest to `x` (pixels from the start of the text).
-    fn field_index_at(&self, x: f32) -> usize {
-        // No canvas here, so a click maps through the average char width of the last draw.
-        self.field.index_at(x, &mut |s: &str| s.chars().count() as f32 * self.last_avg.get())
-    }
-
-    fn draw_field(&mut self, c: &mut dyn Canvas, field: Rect, area: Rect, now_ms: i64) {
-        let focus = true;
-        c.fill_round_rect(field, 10.0, if focus { GREEN } else { FIELD_BORDER });
-        c.fill_round_rect(Rect { x: field.x + 1.0, y: field.y + 1.0, w: field.w - 2.0, h: field.h - 2.0 }, 9.0, ROW);
-        let inner = Rect { x: field.x + 10.0, y: field.y, w: field.w - 20.0, h: field.h };
-        let shown = self.field.display_text();
-        if shown.is_empty() {
-            c.draw_text("Tugas baru, atau 14:30 Rapat", inner, 12.5, 400, DIM, Align::Left);
-        }
-        let prefix_w = c.measure_text(&self.field.caret_prefix(), 12.5, 400);
-        if !shown.is_empty() {
-            self.last_avg.set((c.measure_text(&shown, 12.5, 400) / shown.chars().count() as f32).max(3.0));
-        }
-        // Keep the caret inside the box.
-        if prefix_w - self.hscroll > inner.w - 2.0 {
-            self.hscroll = prefix_w - (inner.w - 2.0);
-        }
-        if prefix_w - self.hscroll < 0.0 {
-            self.hscroll = prefix_w;
-        }
-        c.push_clip(inner, 0.0);
-        let prefix_of = |c: &mut dyn Canvas, n: usize| c.measure_text(&shown.chars().take(n).collect::<String>(), 12.5, 400);
-        if let Some((a, b)) = self.field.selection() {
-            let (xa, xb) = (prefix_of(c, a), prefix_of(c, b));
-            c.fill_round_rect(Rect { x: inner.x + xa - self.hscroll, y: field.y + 6.0, w: xb - xa, h: field.h - 12.0 }, 3.0, Color(52, 211, 153, 80));
-        }
-        let text_rect = Rect { x: inner.x - self.hscroll, y: field.y, w: c.measure_text(&shown, 12.5, 400) + 8.0, h: field.h };
-        c.draw_text(&shown, text_rect, 12.5, 400, WHITE, Align::Left);
-        if let Some((a, b)) = self.field.composition_range() {
-            let (xa, xb) = (prefix_of(c, a), prefix_of(c, b));
-            c.fill_round_rect(Rect { x: inner.x + xa - self.hscroll, y: field.y + field.h - 8.0, w: xb - xa, h: 1.0 }, 0.5, WHITE);
-        }
-        let caret_x = inner.x + prefix_w - self.hscroll;
-        if ((now_ms - self.blink_from) / BLINK_MS) % 2 == 0 {
-            c.fill_round_rect(Rect { x: caret_x, y: field.y + 7.0, w: 1.5, h: field.h - 14.0 }, 0.75, WHITE);
-        }
-        c.pop_clip();
-        self.caret.set(Some((caret_x - area.x, field.y + field.h - area.y)));
     }
 }

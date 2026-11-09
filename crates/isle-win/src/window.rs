@@ -68,6 +68,7 @@ impl Window {
                 Some(instance.into()),
                 None,
             )?;
+            let _ = windows::Win32::System::DataExchange::AddClipboardFormatListener(hwnd);
             let mut settings = crate::settings_io::load();
             settings.autostart = crate::system::is_autostart();
             APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
@@ -429,6 +430,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     r || resized
                 })
             });
+            if let Some(text) = APP.with(|a| a.borrow_mut().as_mut().and_then(|app| app.take_copy())) {
+                crate::input_win::write_clipboard(hwnd, &text);
+            }
             sync_input(hwnd);
             if APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.is_open())) {
                 apply_window_size(hwnd);
@@ -441,6 +445,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_MOUSELEAVE => {
             pointer(hwnd, false);
+            LRESULT(0)
+        }
+        WM_CLIPBOARDUPDATE => {
+            if let Some(text) = crate::input_win::clipboard_for_history(hwnd) {
+                let changed = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.clipboard_changed(&text)));
+                if changed && APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.is_open())) {
+                    draw(hwnd);
+                }
+            }
             LRESULT(0)
         }
         WM_APP_MEDIA | WM_APP_LYRICS => {

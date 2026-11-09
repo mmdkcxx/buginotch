@@ -130,6 +130,15 @@ pub trait Module {
     fn poll(&mut self, _now_ms: i64) -> bool {
         false
     }
+    /// The system clipboard now holds this text (never called for content apps mark as
+    /// private). Returns whether anything visible changed.
+    fn on_clipboard(&mut self, _text: &str, _now_ms: i64) -> bool {
+        false
+    }
+    /// Text the page wants put on the clipboard after a click.
+    fn take_copy(&mut self) -> Option<String> {
+        None
+    }
     /// Called before each frame, to upload images and other resources.
     fn prepare(&mut self, _c: &mut dyn Canvas) {}
 }
@@ -230,6 +239,18 @@ impl Registry {
             changed |= m.poll(now_ms);
         }
         changed
+    }
+
+    pub fn clipboard_changed(&mut self, text: &str, now_ms: i64) -> bool {
+        let mut changed = false;
+        for m in &mut self.modules {
+            changed |= m.on_clipboard(text, now_ms);
+        }
+        changed
+    }
+
+    pub fn take_copy(&mut self) -> Option<String> {
+        self.modules.iter_mut().find_map(|m| m.take_copy())
     }
 
     pub fn prepare_all(&mut self, c: &mut dyn Canvas) {

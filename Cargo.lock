@@ -119,6 +119,7 @@ version = "0.1.0"
 dependencies = [
  "image",
  "isle-logic",
+ "serde_json",
  "windows",
  "windows-numerics",
 ]
