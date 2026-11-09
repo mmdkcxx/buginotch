@@ -2,7 +2,7 @@
 //! Drawing of the open panel's chrome: header, page arrows and dots.
 
 use isle_logic::canvas::{Align, Canvas, Color, Rect};
-use isle_logic::chrome::{ARROW_RADIUS, dot_center, next_center, prev_center};
+use isle_logic::chrome::{ARROW_RADIUS, INDICATOR_W, dot_center, indicator_span, next_center, prev_center};
 
 const WHITE: (u8, u8, u8) = (245, 246, 248);
 const DIM: (u8, u8, u8) = (139, 144, 153);
@@ -24,7 +24,7 @@ pub fn page_area(area: Rect) -> Rect {
     Rect { x: area.x + 44.0, y: area.y + 36.0, w: area.w - 88.0, h: area.h - 36.0 - 26.0 }
 }
 
-pub fn draw_chrome(c: &mut dyn Canvas, area: Rect, header: &Header, pages: usize, current: usize, alpha: f32) {
+pub fn draw_chrome(c: &mut dyn Canvas, area: Rect, header: &Header, pages: usize, current: usize, slide: Option<(usize, i64)>, alpha: f32) {
     c.draw_text(header.title, Rect { x: area.x + 20.0, y: area.y + 10.0, w: 200.0, h: 20.0 }, 14.0, 650, rgba(WHITE, alpha), Align::Left);
     let right = area.x + area.w - 20.0;
     c.draw_text(header.time, Rect { x: right - 52.0, y: area.y + 10.0, w: 52.0, h: 20.0 }, 12.5, 650, rgba(WHITE, alpha), Align::Right);
@@ -38,11 +38,13 @@ pub fn draw_chrome(c: &mut dyn Canvas, area: Rect, header: &Header, pages: usize
         }
         for i in 0..pages {
             let (x, y) = dot_center(area, pages, i);
-            if i == current {
-                c.fill_round_rect(Rect { x: x - 9.0, y: y - 2.5, w: 18.0, h: 5.0 }, 2.5, rgba(WHITE, alpha));
-            } else {
-                c.fill_round_rect(Rect { x: x - 2.5, y: y - 2.5, w: 5.0, h: 5.0 }, 2.5, rgba(DOT, alpha));
-            }
+            c.fill_round_rect(Rect { x: x - 2.5, y: y - 2.5, w: 5.0, h: 5.0 }, 2.5, rgba(DOT, alpha));
         }
+        // The white capsule slides from the old dot to the new one.
+        let (from, elapsed) = slide.unwrap_or((current, 0));
+        let (l, r) = indicator_span(area, pages, from.min(pages - 1), current, elapsed);
+        let y = dot_center(area, pages, current).1;
+        debug_assert!(r - l >= INDICATOR_W - 0.01);
+        c.fill_round_rect(Rect { x: l, y: y - 2.5, w: r - l, h: 5.0 }, 2.5, rgba(WHITE, alpha));
     }
 }

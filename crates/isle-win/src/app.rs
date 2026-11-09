@@ -377,7 +377,7 @@ impl App {
             let pages = self.registry.page_count();
             let current = self.registry.current();
             let title = self.registry.current_page().map(|m| m.title()).unwrap_or("");
-            ui::draw_chrome(c, area, &Header { title, date: &date, time: &clock }, pages, current, alpha);
+            ui::draw_chrome(c, area, &Header { title, date: &date, time: &clock }, pages, current, self.trans.filter(|&(_, _, t0)| !page_transition::finished(epoch_ms() - t0)).map(|(b, _, t0)| (b, epoch_ms() - t0)), alpha);
             if alpha > 0.5 {
                 let now = epoch_ms();
                 let body = ui::page_area(area);
