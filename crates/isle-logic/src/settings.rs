@@ -12,11 +12,14 @@ pub struct Settings {
     pub pill_width: f32,
     pub pill_height: f32,
     pub pomodoro: PomodoroConfig,
+    /// Lyrics are shown this many ms ahead of the reported playback position (players report
+    /// it late, so lyrics otherwise trail the audio). Raise it if lyrics are late.
+    pub lyrics_lead_ms: i64,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default() }
+        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500 }
     }
 }
 
@@ -34,6 +37,12 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lyrics_lead_defaults_to_500_ms_and_can_be_set() {
+        assert_eq!(Settings::default().lyrics_lead_ms, 500);
+        assert_eq!(Settings::from_toml("lyrics_lead_ms = 250").lyrics_lead_ms, 250);
+    }
 
     #[test]
     fn empty_file_gives_defaults() {

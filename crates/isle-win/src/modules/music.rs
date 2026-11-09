@@ -26,6 +26,8 @@ type Slot = Arc<Mutex<Option<(String, Lyrics)>>>;
 
 pub struct MusicModule {
     hwnd: isize,
+    /// See `Settings::lyrics_lead_ms`.
+    lead_ms: i64,
     lyrics_on: bool,
     /// Slide of the lyrics column: (start ms, from, to), eased over `COLUMN_MS`.
     column_anim: (i64, f32, f32),
@@ -49,8 +51,8 @@ pub struct MusicModule {
 }
 
 impl MusicModule {
-    pub fn new(watcher: MediaWatcher, hwnd: isize) -> Self {
-        Self { hwnd, lyrics_on: false, column_anim: (0, 0.0, 0.0), lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
+    pub fn new(watcher: MediaWatcher, hwnd: isize, lead_ms: i64) -> Self {
+        Self { hwnd, lead_ms, lyrics_on: false, column_anim: (0, 0.0, 0.0), lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
     }
 
     /// Eased 0..1 progress of the lyrics column at `now_ms`.
@@ -257,7 +259,7 @@ impl Module for MusicModule {
             Some(MusicHit::LyricRow(row)) => {
                 let LyricsState::Ready(Lyrics::Synced(lines)) = &self.lyrics else { return Reaction::None };
                 let pos = self.info.as_ref().map(|i| i.position_at(now_ms)).unwrap_or(0);
-                let [prev, cur, next] = window(lines.len(), current_index(lines, pos));
+                let [prev, cur, next] = window(lines.len(), current_index(lines, pos + self.lead_ms));
                 if let Some(i) = [prev, cur, next][row] {
                     self.watcher.seek(lines[i].time_ms);
                 }
@@ -282,8 +284,8 @@ impl Module for MusicModule {
             } else if let (LyricsState::Ready(Lyrics::Synced(lines)), Some(info)) = (&self.lyrics, &self.info) {
                 // Wake exactly when the next line starts.
                 let pos = info.position_at(now);
-                if let Some(next) = lines.iter().find(|l| l.time_ms > pos) {
-                    wake = wake.min(now + (next.time_ms - pos).max(1));
+                if let Some(next) = lines.iter().find(|l| l.time_ms > pos + self.lead_ms) {
+                    wake = wake.min(now + (next.time_ms - pos - self.lead_ms).max(1));
                 }
             }
         }
@@ -314,7 +316,7 @@ impl MusicModule {
 
         // Track the current synced line; start a scroll when it advances by exactly one.
         let idx = match &self.lyrics {
-            LyricsState::Ready(Lyrics::Synced(lines)) => current_index(lines, pos),
+            LyricsState::Ready(Lyrics::Synced(lines)) => current_index(lines, pos + self.lead_ms),
             _ => None,
         };
         if idx != self.lyric_idx {

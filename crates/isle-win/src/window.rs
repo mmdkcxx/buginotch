@@ -71,10 +71,11 @@ impl Window {
             let mut settings = crate::settings_io::load();
             settings.autostart = crate::system::is_autostart();
             APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
+            let lead = APP.with(|a| a.borrow().as_ref().map_or(500, |app| app.settings.lyrics_lead_ms));
             let watcher = crate::media_win::MediaWatcher::spawn(hwnd);
             APP.with(|a| {
                 if let Some(app) = a.borrow_mut().as_mut() {
-                    app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher, hwnd.0 as isize)));
+                    app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher, hwnd.0 as isize, lead)));
                 }
             });
             if let Ok(t) = Tray::add(hwnd) {
