@@ -22,6 +22,7 @@ pub mod timer_store;
 pub mod track_card;
 pub mod text_edit;
 pub mod todo;
+pub mod water;
 pub mod todo_layout;
 pub mod timefmt;
 pub mod timer_layout;
