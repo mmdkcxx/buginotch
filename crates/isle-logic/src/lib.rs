@@ -5,4 +5,5 @@
 pub mod layout;
 pub mod lrc;
 pub mod pomodoro;
+pub mod settings;
 pub mod spring;
