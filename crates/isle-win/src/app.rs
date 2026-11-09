@@ -226,9 +226,9 @@ impl App {
         let playing = self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }));
         if playing {
             self.eq_t += dt;
-            self.eq_level = (self.eq_level + dt * 4.0).min(1.0);
+            self.eq_level = (self.eq_level + dt * 3.0).min(1.0);
         } else {
-            self.eq_level = (self.eq_level - dt * 4.0).max(0.0);
+            self.eq_level = (self.eq_level - dt * 3.0).max(0.0);
         }
     }
 
@@ -331,11 +331,13 @@ impl App {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }
                         PillItem::Equaliser { .. } => {
+                            let ea = (a as f32 * self.eq_level) as u8;
                             let t = self.eq_t;
                             for i in 0..3 {
                                 let bar = 3.0 + 9.0 * equaliser::bar(t, i) * self.eq_level;
-                                c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, a));
+                                c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ea));
                             }
+                            draw_pause_glyph(c, x + w - 20.0, (base_h - 10.0) / 2.0, (a as f32 * (1.0 - self.eq_level)) as u8);
                         }
                     }
                 }
@@ -354,10 +356,12 @@ impl App {
                     let sub = fit_text(c, &card.sub, 11.0, 400, l.sub.w);
                     c.draw_text(&sub, l.sub, 11.0, 400, Color(139, 144, 153, ca), Align::Left);
                     let t = self.eq_t;
+                    let ea = (ca as f32 * self.eq_level) as u8;
                     for i in 0..3 {
                         let bar = 3.0 + 9.0 * equaliser::bar(t, i) * self.eq_level;
-                        c.fill_round_rect(Rect { x: l.eq.x + i as f32 * 4.0, y: l.eq.y + l.eq.h - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ca));
+                        c.fill_round_rect(Rect { x: l.eq.x + i as f32 * 4.0, y: l.eq.y + l.eq.h - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ea));
                     }
+                    draw_pause_glyph(c, l.eq.x, l.eq.y + l.eq.h - 11.0, (ca as f32 * (1.0 - self.eq_level)) as u8);
                     c.fill_round_rect(l.bar, 1.5, Color(43, 47, 54, ca));
                     if card.progress > 0.0 {
                         c.fill_round_rect(Rect { w: (l.bar.w * card.progress).max(3.0), ..l.bar }, 1.5, Color(245, 246, 248, ca));
@@ -482,4 +486,14 @@ fn draw_text_with_battery(c: &mut dyn Canvas, text: &str, room: Rect, pill_h: f3
     }
     c.fill_round_rect(Rect { x: ix + ICON_W + 0.6, y: iy + 3.0, w: NUB, h: 4.0 }, 1.0, tint);
     c.draw_text(&format!("{shown}%"), Rect { x: ix + ICON_W + NUB + 6.0, y: 0.0, w: pw + 4.0, h: pill_h }, 12.0, 600, tint, Align::Left);
+}
+
+/// Two short bars (a pause symbol) at `x`,`y`, 10 px tall, that the equaliser bars melt into.
+fn draw_pause_glyph(c: &mut dyn Canvas, x: f32, y: f32, alpha: u8) {
+    if alpha == 0 {
+        return;
+    }
+    let col = Color(139, 144, 153, alpha);
+    c.fill_round_rect(Rect { x: x + 1.0, y, w: 3.0, h: 10.0 }, 1.2, col);
+    c.fill_round_rect(Rect { x: x + 7.0, y, w: 3.0, h: 10.0 }, 1.2, col);
 }
