@@ -38,6 +38,10 @@ pub struct TimerModule {
     bar_from: f32,
     bar_to: f32,
     bar_start: i64,
+    time_from: f32,
+    time_to: f32,
+    time_start: i64,
+    time_key: (Phase, bool),
     anim_until: i64,
 }
 
@@ -69,7 +73,8 @@ impl TimerModule {
         };
         Self { pomodoro, peek: Peek::default(), last_pill: String::new(), settings_open: false,
             press: None, s_from: 0.0, s_start: 0, amber_from: 0.0, amber_to: 0.0, amber_start: 0,
-            bar_from: -1.0, bar_to: 0.0, bar_start: 0, anim_until: 0 }
+            bar_from: -1.0, bar_to: 0.0, bar_start: 0,
+            time_from: -1.0, time_to: -1.0, time_start: 0, time_key: (Phase::Idle, false), anim_until: 0 }
     }
 
     fn save(&self) {
@@ -170,6 +175,26 @@ impl Module for TimerModule {
             self.bar_start = now_ms;
             self.anim_until = self.anim_until.max(now_ms + 520);
         }
+        // The big time glides to its new value on a reset, skip or duration change, and
+        // follows the live countdown directly otherwise.
+        let target = v.remaining_ms as f32;
+        let key = (v.phase, v.running);
+        if self.time_to < 0.0 {
+            self.time_from = target;
+            self.time_to = target;
+        } else if (key != self.time_key || !v.running) && (target - self.time_to).abs() > 500.0 {
+            self.time_from = tween(self.time_from, self.time_to, self.time_start, now_ms, 550.0);
+            self.time_to = target;
+            self.time_start = now_ms;
+            self.anim_until = self.anim_until.max(now_ms + 570);
+        } else {
+            self.time_to = target;
+            if now_ms - self.time_start >= 550 {
+                self.time_from = target;
+            }
+        }
+        self.time_key = key;
+        let shown_ms = tween(self.time_from, self.time_to, self.time_start, now_ms, 550.0).round() as i64;
         if st > 0.0 && st < 1.0 {
             self.anim_until = self.anim_until.max(now_ms + 40);
         }
@@ -180,7 +205,7 @@ impl Module for TimerModule {
             let dy = -8.0 * st;
             let shift = |r: Rect| Rect { y: r.y + dy, ..r };
             let time_col = if paused { Color(WHITE.0, WHITE.1, WHITE.2, 140) } else { WHITE };
-            c.draw_text(&format_mmss(v.remaining_ms), shift(l.time), 52.0, 700, fade(time_col, main_k), Align::Left);
+            c.draw_text(&format_mmss(shown_ms), shift(l.time), 52.0, 700, fade(time_col, main_k), Align::Left);
             let total = v.sessions_before_long_break.max(1);
             let label = if paused {
                 "Dijeda".to_string()
