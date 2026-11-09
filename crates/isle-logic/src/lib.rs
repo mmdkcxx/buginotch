@@ -6,6 +6,7 @@ pub mod canvas;
 pub mod chrome;
 pub mod layout;
 pub mod lrc;
+pub mod lyrics;
 pub mod media;
 pub mod module;
 pub mod music_layout;
