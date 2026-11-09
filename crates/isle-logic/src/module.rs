@@ -44,11 +44,19 @@ pub trait Module {
     fn id(&self) -> &'static str;
     fn title(&self) -> &'static str;
     fn pill_left(&self) -> Option<PillItem>;
+    /// Everything this module shows at the left of the closed pill.
+    fn pill_items(&self) -> Vec<PillItem> {
+        self.pill_left().into_iter().collect()
+    }
     fn pill_center(&self) -> Option<String> {
         None
     }
     fn pill_priority(&self) -> u8 {
         0
+    }
+    /// Draw the pill's centre text in the accent colour (running timer, charging).
+    fn pill_accent(&self) -> bool {
+        false
     }
     /// False for modules that only contribute to the pill (the clock).
     fn has_page(&self) -> bool {
@@ -86,6 +94,12 @@ impl Registry {
 
     pub fn add(&mut self, m: Box<dyn Module>) {
         self.modules.push(m);
+    }
+
+    /// Inserts a module at `index` in the module order (page order follows it).
+    pub fn insert_page(&mut self, index: usize, m: Box<dyn Module>) {
+        let index = index.min(self.modules.len());
+        self.modules.insert(index, m);
     }
 
     fn page_indices(&self) -> Vec<usize> {
@@ -132,18 +146,23 @@ impl Registry {
         &mut self.modules
     }
 
-    /// Text for the closed pill's centre: the highest-priority module's, else `fallback`.
-    pub fn pill_center(&self, fallback: &str) -> String {
-        let mut best: Option<(u8, String)> = None;
+    /// Text for the closed pill's centre and whether it is accented: the highest-priority
+    /// module's, else `fallback`.
+    pub fn pill_text(&self, fallback: &str) -> (String, bool) {
+        let mut best: Option<(u8, String, bool)> = None;
         for m in &self.modules {
             if let Some(t) = m.pill_center() {
                 let p = m.pill_priority();
-                if best.as_ref().is_none_or(|(bp, _)| p > *bp) {
-                    best = Some((p, t));
+                if best.as_ref().is_none_or(|(bp, _, _)| p > *bp) {
+                    best = Some((p, t, m.pill_accent()));
                 }
             }
         }
-        best.map(|(_, t)| t).unwrap_or_else(|| fallback.to_string())
+        best.map(|(_, t, a)| (t, a)).unwrap_or_else(|| (fallback.to_string(), false))
+    }
+
+    pub fn pill_center(&self, fallback: &str) -> String {
+        self.pill_text(fallback).0
     }
 
     pub fn poll_all(&mut self, now_ms: i64) -> bool {
@@ -164,9 +183,9 @@ impl Registry {
         self.modules.iter().any(|m| m.wide_pill())
     }
 
-    /// Left-slot item of the highest-priority module that has one.
-    pub fn pill_left(&self) -> Option<PillItem> {
-        self.modules.iter().filter_map(|m| m.pill_left()).next()
+    /// All left-slot items, in module order.
+    pub fn pill_items(&self) -> Vec<PillItem> {
+        self.modules.iter().flat_map(|m| m.pill_items()).collect()
     }
 
     pub fn earliest_wake(&self, now_ms: i64) -> Option<i64> {

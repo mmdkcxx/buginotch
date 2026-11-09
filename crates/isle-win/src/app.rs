@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{clock::ClockModule, placeholder::Placeholder};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, placeholder::Placeholder};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect};
 use isle_logic::chrome::{ChromeAction, chrome_hit};
+use isle_logic::module::{Event, PillItem, Reaction};
 use isle_logic::layout::{Hover, target};
 use isle_logic::timefmt::{format_clock, format_date};
 use isle_logic::module::Registry;
 use isle_logic::settings::Settings;
 use isle_logic::spring::Spring;
 use std::time::Instant;
+
+pub struct Poll {
+    pub redraw: bool,
+    /// The closed pill's width changed: the window must be resized.
+    pub relayout: bool,
+}
 
 pub struct Step {
     /// Set when this step switched the notch to open.
@@ -44,8 +51,8 @@ impl App {
         let (w, h, r) = closed_dims(&settings, false);
         let mut registry = Registry::new();
         registry.add(Box::new(ClockModule));
-        registry.add(Box::new(Placeholder::new("music", "Musik")));
-        registry.add(Box::new(Placeholder::new("timer", "Focus timer")));
+        registry.add(Box::new(ChargingModule::new()));
+                registry.add(Box::new(Placeholder::new("timer", "Focus timer")));
         App {
             registry,
             settings,
@@ -94,12 +101,30 @@ impl App {
         self.open
     }
 
-    /// Called once a second; returns whether anything visible changed.
-    pub fn on_second(&mut self) -> bool {
-        let text = self.registry.pill_center("");
-        let changed = text != self.last_pill || self.open;
+    /// Polls the modules (once a second and on wake-ups). Returns whether anything
+    /// visible changed.
+    pub fn poll(&mut self) -> Poll {
+        let polled = self.registry.poll_all(epoch_ms());
+        let (text, _) = self.registry.pill_text("");
+        let text_changed = text != self.last_pill;
         self.last_pill = text;
-        changed
+        let wide = self.registry.any_wide_pill();
+        let relayout = wide != self.wide;
+        if relayout {
+            self.wide = wide;
+            if !self.open {
+                let (w, h, r) = closed_dims(&self.settings, self.wide);
+                self.w.target = w;
+                self.h.target = h;
+                self.r.target = r;
+            }
+        }
+        Poll { redraw: polled || text_changed || self.open || relayout, relayout }
+    }
+
+    /// When the modules next need a redraw (epoch ms).
+    pub fn next_wake_ms(&self) -> Option<i64> {
+        self.registry.earliest_wake(epoch_ms())
     }
 
     /// Handles a left click; coordinates are DIPs relative to the notch's top-left.
@@ -114,7 +139,14 @@ impl App {
             Some(ChromeAction::Prev) => self.registry.go(-1),
             Some(ChromeAction::Next) => self.registry.go(1),
             Some(ChromeAction::Dot(i)) => self.registry.set_page(i),
-            None => return false,
+            None => {
+                let body = ui::page_area(area);
+                let now = epoch_ms();
+                return match self.registry.current_page_mut() {
+                    Some(page) => page.on_event(&Event::PointerDown(x, y), body, now) != Reaction::None,
+                    None => false,
+                };
+            }
         }
         true
     }
@@ -130,11 +162,32 @@ impl App {
         let p = ((w - closed_w) / (open_w - closed_w)).clamp(0.0, 1.0);
         let t = local_time();
         let clock = format_clock(t.hour, t.minute);
+        self.registry.prepare_all(c);
 
         if p < 0.98 {
-            let text = self.registry.pill_center(&clock);
+            let (text, accent) = self.registry.pill_text(&clock);
             let a = ((1.0 - p * 1.6).clamp(0.0, 1.0) * 255.0) as u8;
-            c.draw_text(&text, Rect { x, y: 0.0, w, h: self.settings.pill_height }, 12.0, 600, Color(245, 246, 248, a), Align::Center);
+            let color = if accent { Color(52, 211, 153, a) } else { Color(245, 246, 248, a) };
+            c.draw_text(&text, Rect { x, y: 0.0, w, h: self.settings.pill_height }, 12.0, 600, color, Align::Center);
+            let mut lx = x + 10.0;
+            let ph = self.settings.pill_height;
+            let alpha = a as f32 / 255.0;
+            for item in self.registry.pill_items() {
+                match item {
+                    PillItem::MiniCover(id) => {
+                        c.draw_image(id, Rect { x: lx, y: (ph - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0);
+                        lx += 20.0;
+                    }
+                    PillItem::Equaliser { active } => {
+                        let t = epoch_ms() as f32 / 1000.0;
+                        for i in 0..3 {
+                            let bar = if active { 3.0 + 9.0 * (0.5 + 0.5 * (t * 7.0 + i as f32 * 2.1).sin()) } else { 3.0 + i as f32 };
+                            c.fill_round_rect(Rect { x: lx + i as f32 * 4.0, y: (ph + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, (alpha * 255.0) as u8));
+                        }
+                        lx += 14.0;
+                    }
+                }
+            }
         }
         if p > 0.05 {
             let alpha = ((p - 0.3) / 0.7).clamp(0.0, 1.0);

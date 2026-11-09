@@ -80,6 +80,27 @@ impl Canvas for D2dCanvas<'_> {
         }
     }
 
+    fn fill_polygon(&mut self, points: &[(f32, f32)], c: Color) {
+        if points.len() < 3 {
+            return;
+        }
+        unsafe {
+            let Ok(factory) = self.ctx.GetFactory() else { return };
+            let Ok(path) = factory.CreatePathGeometry() else { return };
+            let Ok(sink) = path.Open() else { return };
+            sink.BeginFigure(Vector2 { X: points[0].0, Y: points[0].1 }, D2D1_FIGURE_BEGIN_FILLED);
+            for p in &points[1..] {
+                sink.AddLine(Vector2 { X: p.0, Y: p.1 });
+            }
+            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+            if sink.Close().is_err() {
+                return;
+            }
+            self.brush.SetColor(&col(c));
+            self.ctx.FillGeometry(&path, self.brush, None);
+        }
+    }
+
     fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, c: Color) {
         unsafe {
             self.brush.SetColor(&col(c));

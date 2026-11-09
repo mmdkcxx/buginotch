@@ -24,6 +24,7 @@ pub struct ImageId(pub u32);
 
 pub trait Canvas {
     fn fill_round_rect(&mut self, r: Rect, radius: f32, c: Color);
+    fn fill_polygon(&mut self, points: &[(f32, f32)], c: Color);
     fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, c: Color);
     fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, start_deg: f32, sweep_deg: f32, width: f32, c: Color);
     fn draw_text(&mut self, text: &str, r: Rect, size: f32, weight: u16, c: Color, align: Align);

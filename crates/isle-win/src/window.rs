@@ -22,6 +22,7 @@ pub const WM_APP_MEDIA: u32 = WM_APP + 2;
 pub const WM_APP_LYRICS: u32 = WM_APP + 3;
 const TIMER_ANIM: usize = 1;
 const TIMER_SECOND: usize = 2;
+const TIMER_WAKE: usize = 3;
 /// Defined in Win32::UI::Controls, which we do not pull in just for this.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
@@ -68,6 +69,12 @@ impl Window {
             let mut settings = std::fs::read_to_string(&path).map(|t| Settings::from_toml(&t)).unwrap_or_default();
             settings.autostart = crate::system::is_autostart();
             APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
+            let watcher = crate::media_win::MediaWatcher::spawn(hwnd);
+            APP.with(|a| {
+                if let Some(app) = a.borrow_mut().as_mut() {
+                    app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher)));
+                }
+            });
             if let Ok(t) = Tray::add(hwnd) {
                 TRAY.with(|c| *c.borrow_mut() = Some(t));
             }
@@ -143,6 +150,32 @@ fn save_settings() {
             let _ = std::fs::write(path, app.settings.to_toml());
         }
     });
+}
+
+/// Polls the modules, resizes the window if the pill changed width, redraws, and
+/// schedules the next module wake-up.
+fn poll_and_draw(hwnd: HWND) {
+    let poll = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.poll()));
+    let Some(poll) = poll else { return };
+    if poll.relayout {
+        let big = APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.window_big));
+        if !big {
+            apply_window_size(hwnd);
+        }
+        kick(hwnd);
+    }
+    if poll.redraw {
+        draw(hwnd);
+    }
+    schedule_wake(hwnd);
+}
+
+fn schedule_wake(hwnd: HWND) {
+    let wake = APP.with(|a| a.borrow().as_ref().and_then(|app| app.next_wake_ms()));
+    if let Some(at) = wake {
+        let delay = (at - crate::system::epoch_ms()).clamp(16, 60_000) as u32;
+        unsafe { SetTimer(Some(hwnd), TIMER_WAKE, delay, None) };
+    }
 }
 
 fn resize_renderer(hwnd: HWND) {
@@ -239,6 +272,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             pointer(hwnd, false);
             LRESULT(0)
         }
+        WM_APP_MEDIA => {
+            poll_and_draw(hwnd);
+            LRESULT(0)
+        }
         WM_APP_TRAY => {
             if (lparam.0 & 0xFFFF) as u32 == WM_RBUTTONUP {
                 tray::show_menu(hwnd);
@@ -266,9 +303,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     let _ = ShowWindow(hwnd, if fullscreen { SW_HIDE } else { SW_SHOWNOACTIVATE });
                 }
             }
-            if APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.on_second())) {
-                draw(hwnd);
+            poll_and_draw(hwnd);
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == TIMER_WAKE => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_WAKE);
             }
+            poll_and_draw(hwnd);
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == TIMER_ANIM => {

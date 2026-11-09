@@ -12,6 +12,9 @@ impl Canvas for RecordingCanvas {
     fn fill_round_rect(&mut self, r: Rect, radius: f32, _c: Color) {
         self.calls.push(format!("rrect {} {} {} {} r{}", r.x, r.y, r.w, r.h, radius));
     }
+    fn fill_polygon(&mut self, points: &[(f32, f32)], _c: Color) {
+        self.calls.push(format!("poly {}", points.len()));
+    }
     fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, _c: Color) {
         self.calls.push(format!("circle {cx} {cy} {r}"));
     }

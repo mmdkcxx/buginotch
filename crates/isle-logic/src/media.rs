@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! What the system says is playing.
 
+/// A readable app name from an SMTC source id ("X!Spotify" -> "Spotify", "chrome.exe" -> "Chrome").
+pub fn friendly_app(id: &str) -> String {
+    let name = match id.split_once('!') {
+        Some((_, after)) => after,
+        None => id.strip_suffix(".exe").unwrap_or(id),
+    };
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// A decoded cover image, straight-alpha RGBA8.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverImage {
@@ -51,6 +64,14 @@ mod tests {
             updated_at_ms: 0,
             cover: None,
         }
+    }
+
+    #[test]
+    fn friendly_app_names() {
+        assert_eq!(friendly_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify"), "Spotify");
+        assert_eq!(friendly_app("chrome.exe"), "Chrome");
+        assert_eq!(friendly_app("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"), "Microsoft.ZuneMusic");
+        assert_eq!(friendly_app(""), "");
     }
 
     #[test]

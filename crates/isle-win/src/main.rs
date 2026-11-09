@@ -3,7 +3,9 @@
 
 mod app;
 mod d2d_canvas;
+mod media_win;
 mod modules;
+mod power;
 mod renderer;
 mod system;
 mod tray;

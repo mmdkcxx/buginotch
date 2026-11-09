@@ -8,6 +8,7 @@ pub mod layout;
 pub mod lrc;
 pub mod media;
 pub mod module;
+pub mod music_layout;
 pub mod peek;
 pub mod pomodoro;
 pub mod settings;
