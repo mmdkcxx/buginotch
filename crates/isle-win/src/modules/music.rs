@@ -6,13 +6,31 @@ use crate::system::epoch_ms;
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text};
 use isle_logic::media::MediaInfo;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
-use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, hit, layout};
+use isle_logic::lyrics::{Lyrics, current_index, window};
+use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, hit_for, layout_for, lyric_rows};
+use std::sync::{Arc, Mutex};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 const WHITE: Color = Color(245, 246, 248, 255);
 const DIM: Color = Color(139, 144, 153, 255);
 const TRACK: Color = Color(43, 47, 54, 255);
 
+/// What the lyrics column shows for the current track.
+enum LyricsState {
+    Loading,
+    Ready(Lyrics),
+}
+
+type Slot = Arc<Mutex<Option<(String, Lyrics)>>>;
+
 pub struct MusicModule {
+    hwnd: isize,
+    lyrics_on: bool,
+    lyrics: LyricsState,
+    /// Track the lyrics were requested for.
+    lyrics_track: String,
+    slot: Slot,
     watcher: MediaWatcher,
     info: Option<MediaInfo>,
     cover: Option<ImageId>,
@@ -22,8 +40,31 @@ pub struct MusicModule {
 }
 
 impl MusicModule {
-    pub fn new(watcher: MediaWatcher) -> Self {
-        Self { watcher, info: None, cover: None, cover_key: None, had_session: false }
+    pub fn new(watcher: MediaWatcher, hwnd: isize) -> Self {
+        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), watcher, info: None, cover: None, cover_key: None, had_session: false }
+    }
+
+    fn track_key(info: &MediaInfo) -> String {
+        format!("{}\u{1}{}\u{1}{}", info.title, info.artist, info.duration_ms / 1000)
+    }
+
+    /// Starts a lookup on a worker thread when lyrics are on and the track changed.
+    fn request_lyrics(&mut self) {
+        let Some(info) = self.info.clone().filter(|_| self.had_session) else { return };
+        let key = Self::track_key(&info);
+        if !self.lyrics_on || key == self.lyrics_track {
+            return;
+        }
+        self.lyrics_track = key.clone();
+        self.lyrics = LyricsState::Loading;
+        let (slot, hwnd) = (self.slot.clone(), self.hwnd);
+        std::thread::spawn(move || {
+            let found = crate::lrclib::lookup(&info.title, &info.artist, &info.album, info.duration_ms);
+            *slot.lock().unwrap() = Some((key, found));
+            unsafe {
+                let _ = PostMessageW(Some(HWND(hwnd as *mut _)), crate::window::WM_APP_LYRICS, WPARAM(0), LPARAM(0));
+            }
+        });
     }
 
     fn playing(&self) -> bool {
@@ -76,7 +117,19 @@ impl Module for MusicModule {
             };
         self.had_session = had;
         self.info = latest;
+        self.request_lyrics();
+        let arrived = self.slot.lock().unwrap().take();
+        let mut changed = changed;
+        if let Some((key, found)) = arrived {
+            if key == self.lyrics_track {
+                self.lyrics = LyricsState::Ready(found);
+                changed = true;
+            }
+        }
         changed
+    }
+    fn wants_wide_panel(&self) -> bool {
+        self.lyrics_on && self.had_session
     }
     fn prepare(&mut self, c: &mut dyn Canvas) {
         let Some(info) = &self.info else { return };
@@ -91,7 +144,8 @@ impl Module for MusicModule {
             c.draw_text("Tidak ada musik", area, 13.0, 400, DIM, Align::Center);
             return;
         };
-        let l = layout(area);
+        let lyrics_on = self.lyrics_on;
+        let l = layout_for(area, lyrics_on);
         match self.cover {
             Some(id) => c.draw_image(id, l.cover, 14.0),
             None => c.fill_round_rect(l.cover, 14.0, Color(232, 116, 79, 255)),
@@ -106,6 +160,11 @@ impl Module for MusicModule {
         c.draw_text(&fmt_time(pos), l.elapsed, 10.5, 400, DIM, Align::Left);
         if info.duration_ms > 0 {
             c.draw_text(&fmt_time(info.duration_ms), l.total, 10.5, 400, DIM, Align::Right);
+        }
+        let btn_col = if lyrics_on { WHITE } else { DIM };
+        c.draw_text("Lirik", l.lyrics_btn, 11.0, 600, btn_col, Align::Right);
+        if lyrics_on {
+            self.draw_lyrics(c, area, pos);
         }
         c.fill_round_rect(l.bar, 2.0, TRACK);
         if info.duration_ms > 0 {
@@ -129,12 +188,12 @@ impl Module for MusicModule {
             triangle(c, l.play.0 + 1.0, l.play.1, 6.5, true, black);
         }
     }
-    fn on_event(&mut self, e: &Event, area: Rect, _now_ms: i64) -> Reaction {
+    fn on_event(&mut self, e: &Event, area: Rect, now_ms: i64) -> Reaction {
         let Event::PointerDown(x, y) = e else { return Reaction::None };
         if !self.had_session {
             return Reaction::None;
         }
-        match hit(area, *x, *y) {
+        match hit_for(area, self.lyrics_on, *x, *y) {
             Some(MusicHit::PlayPause) => self.watcher.play_pause(),
             Some(MusicHit::Prev) => self.watcher.previous(),
             Some(MusicHit::Next) => self.watcher.next(),
@@ -145,6 +204,18 @@ impl Module for MusicModule {
                     }
                 }
             }
+            Some(MusicHit::LyricsToggle) => {
+                self.lyrics_on = !self.lyrics_on;
+                self.request_lyrics();
+            }
+            Some(MusicHit::LyricRow(row)) => {
+                let LyricsState::Ready(Lyrics::Synced(lines)) = &self.lyrics else { return Reaction::None };
+                let pos = self.info.as_ref().map(|i| i.position_at(now_ms)).unwrap_or(0);
+                let [prev, cur, next] = window(lines.len(), current_index(lines, pos));
+                if let Some(i) = [prev, cur, next][row] {
+                    self.watcher.seek(lines[i].time_ms);
+                }
+            }
             None => return Reaction::None,
         }
         Reaction::Redraw
@@ -152,5 +223,27 @@ impl Module for MusicModule {
     /// Animates the pill's equaliser and the scrub bar while playing.
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         self.playing().then(|| now_ms.max(epoch_ms()) + 120)
+    }
+}
+
+impl MusicModule {
+    fn draw_lyrics(&self, c: &mut dyn Canvas, area: Rect, pos: i64) {
+        let rows = lyric_rows(area);
+        let message = |c: &mut dyn Canvas, text: &str| c.draw_text(text, rows[1], 12.0, 400, DIM, Align::Left);
+        let lyrics = match &self.lyrics {
+            LyricsState::Loading => return message(c, "Mencari lirik…"),
+            LyricsState::Ready(l) => l,
+        };
+        let (texts, index): (Vec<&str>, Option<usize>) = match lyrics {
+            Lyrics::None => return message(c, "Tidak ada lirik"),
+            Lyrics::Synced(lines) => (lines.iter().map(|l| l.text.as_str()).collect(), current_index(lines, pos)),
+            Lyrics::Plain(lines) => (lines.iter().map(String::as_str).collect(), None),
+        };
+        for (slot, line) in window(texts.len(), index).into_iter().enumerate() {
+            let Some(i) = line else { continue };
+            let (size, weight, color) = if slot == 1 { (15.0, 650, WHITE) } else { (12.0, 400, DIM) };
+            let text = fit_text(c, texts[i], size, weight, rows[slot].w);
+            c.draw_text(&text, rows[slot], size, weight, color, Align::Left);
+        }
     }
 }

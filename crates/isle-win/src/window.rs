@@ -70,7 +70,7 @@ impl Window {
             let watcher = crate::media_win::MediaWatcher::spawn(hwnd);
             APP.with(|a| {
                 if let Some(app) = a.borrow_mut().as_mut() {
-                    app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher)));
+                    app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher, hwnd.0 as isize)));
                 }
             });
             if let Ok(t) = Tray::add(hwnd) {
@@ -147,10 +147,8 @@ fn poll_and_draw(hwnd: HWND) {
     let poll = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.poll()));
     let Some(poll) = poll else { return };
     if poll.relayout {
-        let big = APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.window_big));
-        if !big {
-            apply_window_size(hwnd);
-        }
+        // Open or closed, the window must fit the (possibly wider) target size.
+        apply_window_size(hwnd);
         kick(hwnd);
     }
     if poll.redraw {
@@ -249,9 +247,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             let redraw = APP.with(|a| {
                 a.borrow_mut().as_mut().is_some_and(|app| {
                     let (w, _, _) = app.dims();
-                    app.click(px / s - (win_w - w) / 2.0, py / s)
+                    let r = app.click(px / s - (win_w - w) / 2.0, py / s);
+                    r || app.sync_lyrics()
                 })
             });
+            if APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.is_open())) {
+                apply_window_size(hwnd);
+                kick(hwnd);
+            }
             if redraw {
                 draw(hwnd);
             }
@@ -261,7 +264,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             pointer(hwnd, false);
             LRESULT(0)
         }
-        WM_APP_MEDIA => {
+        WM_APP_MEDIA | WM_APP_LYRICS => {
             poll_and_draw(hwnd);
             LRESULT(0)
         }

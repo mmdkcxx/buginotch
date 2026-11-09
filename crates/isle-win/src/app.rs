@@ -101,6 +101,23 @@ impl App {
         self.open
     }
 
+    /// Follows the current page's wish for a wide panel (lyrics). Returns true when
+    /// the open size changed, so the caller must resize the window.
+    pub fn sync_lyrics(&mut self) -> bool {
+        let want = self.registry.current_page().is_some_and(|m| m.wants_wide_panel());
+        if want == self.lyrics {
+            return false;
+        }
+        self.lyrics = want;
+        if self.open {
+            let t = target(true, self.wide, self.lyrics);
+            self.w.target = t.size.w;
+            self.h.target = t.size.h;
+            self.r.target = t.radius;
+        }
+        true
+    }
+
     /// Polls the modules (once a second and on wake-ups). Returns whether anything
     /// visible changed.
     pub fn poll(&mut self) -> Poll {
@@ -119,7 +136,8 @@ impl App {
                 self.r.target = r;
             }
         }
-        Poll { redraw: polled || text_changed || self.open || relayout, relayout }
+        let resized = self.sync_lyrics();
+        Poll { redraw: polled || text_changed || self.open || relayout || resized, relayout: relayout || resized }
     }
 
     /// When the modules next need a redraw (epoch ms).
