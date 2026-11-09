@@ -30,6 +30,7 @@ pub struct Renderer {
     next_image: Cell<u32>,
     font_family: HSTRING,
     dpi: f32,
+    size: (u32, u32),
     _dcomp: IDCompositionDevice,
     _target: IDCompositionTarget,
     _visual: IDCompositionVisual,
@@ -87,6 +88,7 @@ impl Renderer {
                 next_image: Cell::new(1),
                 font_family,
                 dpi,
+                size: (w_px.max(1), h_px.max(1)),
                 _dcomp: dcomp,
                 _target: target,
                 _visual: visual,
@@ -94,7 +96,13 @@ impl Renderer {
         }
     }
 
+    /// Reallocates the buffers only when their size or the DPI really changed. The window
+    /// itself is resized far more often than that (see `window::buffer_px`).
     pub fn resize(&mut self, w_px: u32, h_px: u32, dpi: f32) -> Result<()> {
+        if self.size == (w_px.max(1), h_px.max(1)) && self.dpi == dpi {
+            return Ok(());
+        }
+        self.size = (w_px.max(1), h_px.max(1));
         unsafe {
             self.d2d_ctx.SetTarget(None);
             self.swap.ResizeBuffers(0, w_px.max(1), h_px.max(1), DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0))?;

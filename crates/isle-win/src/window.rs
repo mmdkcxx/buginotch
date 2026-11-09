@@ -83,7 +83,8 @@ impl Window {
             let mut rc = RECT::default();
             GetClientRect(hwnd, &mut rc)?;
             let dpi = 96.0 * scale_of(hwnd);
-            let renderer = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, dpi)?;
+            let (bw, bh) = buffer_px(scale_of(hwnd));
+            let renderer = Renderer::new(hwnd, bw, bh, dpi)?;
             RENDERER.with(|r| *r.borrow_mut() = Some(renderer));
             SetTimer(Some(hwnd), TIMER_SECOND, 1000, None);
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -161,7 +162,8 @@ fn draw(hwnd: HWND) {
     });
     if lost {
         crate::log("graphics device lost; rebuilding renderer");
-        if let Ok(r) = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * s) {
+        let (bw, bh) = buffer_px(s);
+        if let Ok(r) = Renderer::new(hwnd, bw, bh, 96.0 * s) {
             RENDERER.with(|c| *c.borrow_mut() = Some(r));
         }
     }
@@ -208,6 +210,12 @@ fn wants_frames() -> bool {
     APP.with(|a| a.borrow().as_ref().and_then(|app| app.next_wake_ms())).is_some_and(|at| at - crate::system::epoch_ms() <= FRAME_WAKE_MS)
 }
 
+/// The swap chain is always as big as the largest open panel (plus slack), so growing or
+/// shrinking the window never reallocates it: reallocating cleared the frame and blinked.
+fn buffer_px(scale: f32) -> (u32, u32) {
+    ((680.0 * scale).ceil() as u32, (190.0 * scale).ceil() as u32)
+}
+
 fn resize_renderer(hwnd: HWND) {
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
@@ -216,7 +224,8 @@ fn resize_renderer(hwnd: HWND) {
     }
     RENDERER.with(|cell| {
         if let Some(renderer) = cell.borrow_mut().as_mut() {
-            let _ = renderer.resize((rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * s);
+            let (bw, bh) = buffer_px(s);
+            let _ = renderer.resize(bw, bh, 96.0 * s);
         }
     });
 }
