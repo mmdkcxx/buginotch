@@ -27,11 +27,18 @@ pub struct NotificationsModule {
     icons: HashMap<String, Option<ImageId>>,
     /// An older notification the user opened into the large card (by id).
     selected: Option<u32>,
-    /// When the large card last changed, for its fade-in (epoch ms).
-    swapped_at: i64,
+    /// A swap in progress: where each card was, and when it started (epoch ms).
+    swap: Option<(Vec<(u32, Spot)>, i64)>,
 }
 
-const SWAP_MS: f32 = 240.0;
+/// Where a card sits: the large slot or one of the three side rows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Spot {
+    Main,
+    Side(usize),
+}
+
+const SWAP_MS: f32 = 420.0;
 
 /// The large card and the three side rows, relative to the page area.
 fn layout(area: Rect) -> (Rect, [Rect; 3]) {
@@ -43,10 +50,68 @@ fn layout(area: Rect) -> (Rect, [Rect; 3]) {
     (main, [row(0), row(1), row(2)])
 }
 
+fn rect_of(spot: Spot, area: Rect) -> (Rect, f32) {
+    let (main, rows) = layout(area);
+    match spot {
+        Spot::Main => (main, 1.0),
+        Spot::Side(i) => (rows[i], 0.0),
+    }
+}
+
+fn lerp(a: f32, b: f32, k: f32) -> f32 {
+    a + (b - a) * k
+}
+
+fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn alpha(c: Color, a: f32) -> Color {
+    Color(c.0, c.1, c.2, (c.3 as f32 * a.clamp(0.0, 1.0)) as u8)
+}
+
+/// Where every shown card sits for this selection (item index, spot).
+fn placements(items: &[Notif], selected: Option<u32>) -> Vec<(usize, Spot)> {
+    let (main, side) = arrange(items, selected);
+    main.map(|m| (m, Spot::Main)).into_iter().chain(side.into_iter().enumerate().map(|(slot, i)| (i, Spot::Side(slot)))).collect()
+}
+
 impl NotificationsModule {
     pub fn new() -> Self {
         notif_win::spawn();
-        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swapped_at: 0 }
+        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swap: None }
+    }
+
+    fn swapping(&self, now_ms: i64) -> bool {
+        self.swap.as_ref().is_some_and(|(_, t0)| ((now_ms - t0) as f32) < SWAP_MS)
+    }
+
+    /// One card at `r`, between a compact row (`e` = 0) and the large card (`e` = 1).
+    fn draw_card(&self, c: &mut dyn Canvas, r: Rect, n: &Notif, e: f32, big_w: f32, now_ms: i64) {
+        let logo = self.icons.get(&n.app).copied().flatten();
+        c.fill_round_rect(r, lerp(11.0, 13.0, e), CARD);
+        c.push_clip(r, lerp(11.0, 13.0, e));
+        let (size, tx0, ty0) = (lerp(20.0, 28.0, e), lerp(r.x + 9.0, r.x + 13.0, e), lerp(r.y + (r.h - 20.0) / 2.0, r.y + 11.0, e));
+        tile(c, Rect { x: tx0, y: ty0, w: size, h: size }, &n.app, lerp(10.0, 13.0, e), logo);
+        if e < 0.98 {
+            let label = fit_text(c, &side_label(n), 12.0, 600, (big_w - 46.0).min(r.w - 46.0).max(10.0));
+            c.draw_text(&label, Rect { x: r.x + 37.0, y: r.y + (r.h - 18.0) / 2.0, w: r.w - 46.0, h: 18.0 }, 12.0, 600, alpha(WHITE, 1.0 - e * 2.0), Align::Left);
+        }
+        if e > 0.02 {
+            let a = ((e - 0.35) / 0.65).clamp(0.0, 1.0);
+            let tx = r.x + 50.0;
+            let tw = big_w - 63.0;
+            let title = fit_text(c, if n.title.is_empty() { &n.app } else { &n.title }, 13.0, 650, tw);
+            c.draw_text(&title, Rect { x: tx, y: r.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, alpha(WHITE, a), Align::Left);
+            let meta = fit_text(c, &format!("{} · {}", n.app, clock_of(n.at_ms, now_ms)), 10.5, 400, tw);
+            c.draw_text(&meta, Rect { x: tx, y: r.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, alpha(DIM, a), Align::Left);
+            let body = if n.title.is_empty() { "" } else { n.body.as_str() };
+            for (i, line) in wrap_lines(c, body, 13.0, 400, big_w - 26.0, 3).iter().enumerate() {
+                c.draw_text(line, Rect { x: r.x + 13.0, y: r.y + 50.0 + i as f32 * 18.0 + 5.0 * (1.0 - a), w: big_w - 26.0, h: 18.0 }, 13.0, 400, alpha(BODY, a), Align::Left);
+            }
+        }
+        c.pop_clip();
     }
 }
 
@@ -107,7 +172,7 @@ impl Module for NotificationsModule {
             changed = old != self.feed.items().iter().map(|n| n.id).collect::<Vec<_>>();
             if let Some(newest) = fresh.first() {
                 self.selected = None;
-                self.swapped_at = now_ms;
+                self.swap = None;
                 self.peek.show(short(&snippet(newest), PILL_CHARS), now_ms, PEEK_MS);
             }
         }
@@ -123,38 +188,32 @@ impl Module for NotificationsModule {
                 }
             }
         }
-        let logo = |app: &str| self.icons.get(app).copied().flatten();
         let items = self.feed.items();
-        let (main_idx, side) = arrange(items, self.selected);
-        let Some(first) = main_idx.map(|i| &items[i]) else {
+        let now_places = placements(items, self.selected);
+        if now_places.is_empty() {
             c.fill_round_rect(area, 13.0, CARD);
             c.draw_text("Belum ada notifikasi", Rect { y: area.y + area.h / 2.0 - 10.0, h: 20.0, ..area }, 13.0, 600, DIM, Align::Center);
             return;
-        };
-        let (main, rows) = layout(area);
-        let k = ((now_ms - self.swapped_at) as f32 / SWAP_MS).clamp(0.0, 1.0);
-        let fade = |col: Color| Color(col.0, col.1, col.2, (col.3 as f32 * (0.15 + 0.85 * (1.0 - (1.0 - k).powi(3)))) as u8);
-        c.fill_round_rect(main, 13.0, CARD);
-        tile(c, Rect { x: main.x + 13.0, y: main.y + 11.0, w: 28.0, h: 28.0 }, &first.app, 13.0, logo(&first.app));
-        let tx = main.x + 50.0;
-        let tw = main.w - 63.0;
-        let title = fit_text(c, if first.title.is_empty() { &first.app } else { &first.title }, 13.0, 650, tw);
-        c.draw_text(&title, Rect { x: tx, y: main.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, fade(WHITE), Align::Left);
-        let meta = fit_text(c, &format!("{} · {}", first.app, clock_of(first.at_ms, now_ms)), 10.5, 400, tw);
-        c.draw_text(&meta, Rect { x: tx, y: main.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, fade(DIM), Align::Left);
-        let body = if first.title.is_empty() { "" } else { first.body.as_str() };
-        for (i, line) in wrap_lines(c, body, 13.0, 400, main.w - 26.0, 3).iter().enumerate() {
-            c.draw_text(line, Rect { x: main.x + 13.0, y: main.y + 50.0 + i as f32 * 18.0 + 4.0 * (1.0 - k), w: main.w - 26.0, h: 18.0 }, 13.0, 400, fade(BODY), Align::Left);
         }
-
-        for (slot, &idx) in side.iter().enumerate() {
+        let (main, _) = layout(area);
+        let k = match &self.swap {
+            Some((_, t0)) => ease_in_out((now_ms - t0) as f32 / SWAP_MS),
+            None => 1.0,
+        };
+        // Side cards first, the large card last so it slides over the others.
+        let mut order = now_places.clone();
+        order.sort_by_key(|(_, s)| matches!(s, Spot::Main));
+        for (idx, spot) in order {
             let n = &items[idx];
-            let r = rows[slot];
-            c.fill_round_rect(r, 11.0, CARD);
-            tile(c, Rect { x: r.x + 9.0, y: r.y + (r.h - 20.0) / 2.0, w: 20.0, h: 20.0 }, &n.app, 10.0, logo(&n.app));
-            let label = side_label(n);
-            let text = fit_text(c, &label, 12.0, 600, r.w - 46.0);
-            c.draw_text(&text, Rect { x: r.x + 37.0, y: r.y + (r.h - 18.0) / 2.0, w: r.w - 46.0, h: 18.0 }, 12.0, 600, WHITE, Align::Left);
+            let (end, end_e) = rect_of(spot, area);
+            let (r, e) = match self.swap.as_ref().and_then(|(from, _)| from.iter().find(|(id, _)| *id == n.id)) {
+                Some(&(_, from_spot)) if k < 1.0 => {
+                    let (start, start_e) = rect_of(from_spot, area);
+                    (Rect { x: lerp(start.x, end.x, k), y: lerp(start.y, end.y, k), w: lerp(start.w, end.w, k), h: lerp(start.h, end.h, k) }, lerp(start_e, end_e, k))
+                }
+                _ => (end, end_e),
+            };
+            self.draw_card(c, r, n, e, main.w, now_ms);
         }
     }
 
@@ -162,14 +221,18 @@ impl Module for NotificationsModule {
         let Event::PointerDown(x, y) = *e else {
             return Reaction::None;
         };
+        if self.swapping(now_ms) {
+            return Reaction::None;
+        }
         let items = self.feed.items();
-        let (_, side) = arrange(items, self.selected);
         let (_, rows) = layout(area);
-        for (slot, &idx) in side.iter().enumerate() {
+        let before = placements(items, self.selected);
+        for &(idx, spot) in &before {
+            let Spot::Side(slot) = spot else { continue };
             let r = rows[slot];
             if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
+                self.swap = Some((before.iter().map(|&(i, s)| (items[i].id, s)).collect(), now_ms));
                 self.selected = Some(items[idx].id);
-                self.swapped_at = now_ms;
                 return Reaction::Redraw;
             }
         }
@@ -177,10 +240,9 @@ impl Module for NotificationsModule {
     }
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
-        // The large card fades in after a swap: keep frames coming until it has.
-        let fading = ((now_ms - self.swapped_at) as f32) < SWAP_MS + 40.0;
-        let fade = fading.then_some(now_ms + 16);
-        [self.peek.next_wake_ms(), fade].into_iter().flatten().min()
+        // Keep frames coming while the cards trade places.
+        let moving = self.swapping(now_ms).then_some(now_ms + 16);
+        [self.peek.next_wake_ms(), moving].into_iter().flatten().min()
     }
 }
 
