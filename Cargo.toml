@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/isle-logic"]
+members = ["crates/isle-logic", "crates/isle-win"]
 
 [workspace.package]
 version = "0.1.0"
