@@ -4,3 +4,4 @@
 
 pub mod lrc;
 pub mod pomodoro;
+pub mod spring;
