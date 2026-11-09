@@ -51,6 +51,8 @@ pub struct App {
     trans: Option<(usize, f32, i64)>,
     /// The pill is currently grown into the "new song" card.
     card: bool,
+    /// Width the closed pill needs for a long centre text (a peek); 0 when the usual width does.
+    text_w: f32,
     /// What the card shows; kept while it shrinks back so it can fade out.
     card_last: Option<PillCard>,
 }
@@ -79,13 +81,18 @@ impl App {
             last_pill: String::new(),
             trans: None,
             card: false,
+            text_w: 0.0,
             card_last: None,
         }
     }
 
     /// Width, height and radius of the pill at rest: the "new song" card while it shows.
     fn closed_now(&self) -> (f32, f32, f32) {
-        if self.card { (CARD_W, CARD_H, CARD_RADIUS) } else { closed_dims(&self.settings, self.wide) }
+        if self.card {
+            return (CARD_W, CARD_H, CARD_RADIUS);
+        }
+        let (w, h, r) = closed_dims(&self.settings, self.wide);
+        (w.max(self.text_w), h, r)
     }
 
     pub fn now_ms(&self) -> i64 {
@@ -159,6 +166,11 @@ impl App {
         let polled = self.registry.poll_all(epoch_ms());
         let (text, _) = self.registry.pill_text("");
         let text_changed = text != self.last_pill;
+        // Room for the text between the cover (left) and the equaliser (right).
+        let chars = text.chars().count();
+        let text_w = if chars > 6 { chars as f32 * 7.4 + 72.0 } else { 0.0 };
+        let width_changed = text_w != self.text_w;
+        self.text_w = text_w;
         self.last_pill = text;
         let wide = self.registry.any_wide_pill();
         let card_now = self.registry.pill_card(epoch_ms());
@@ -166,7 +178,7 @@ impl App {
         if card_now.is_some() {
             self.card_last = card_now;
         }
-        let relayout = wide != self.wide || want_card != self.card;
+        let relayout = wide != self.wide || want_card != self.card || width_changed;
         if relayout {
             self.wide = wide;
             self.card = want_card;
@@ -260,7 +272,9 @@ impl App {
             if a > 0 {
                 let (text, accent) = self.registry.pill_text(&clock);
                 let color = if accent { Color(52, 211, 153, a) } else { Color(245, 246, 248, a) };
-                c.draw_text(&text, Rect { x, y: 0.0, w, h: base_h }, 12.0, 600, color, Align::Center);
+                let room = Rect { x: x + 30.0, y: 0.0, w: (w - 60.0).max(1.0), h: base_h };
+                let text = fit_text(c, &text, 12.0, 600, room.w);
+                c.draw_text(&text, room, 12.0, 600, color, Align::Center);
                 let alpha = a as f32 / 255.0;
                 // Left: album art. Right: equaliser. Middle: the text above.
                 for item in self.registry.pill_items() {
