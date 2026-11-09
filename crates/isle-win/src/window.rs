@@ -275,6 +275,7 @@ fn forward_pointer(hwnd: HWND, lparam: LPARAM, up: bool) -> bool {
 }
 
 /// Draws one frame through `App::paint`.
+
 fn draw(hwnd: HWND) {
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
@@ -327,6 +328,8 @@ fn poll_and_draw(hwnd: HWND) {
     if poll.redraw {
         draw(hwnd);
     }
+    // A text box can lose focus without a key (a button press, a page change): hand the keyboard back.
+    sync_input(hwnd);
     schedule_wake(hwnd);
 }
 
@@ -388,6 +391,7 @@ fn tick(hwnd: HWND) {
     }
     apply_window_size(hwnd);
     draw(hwnd);
+    sync_input(hwnd);
     if step.fully_closed {
         APP.with(|a| a.borrow_mut().as_mut().map(|app| app.window_big = false));
         apply_window_size(hwnd);
@@ -446,6 +450,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = ReleaseCapture();
             }
             run_file_actions(hwnd);
+            sync_input(hwnd);
             // With capture the pointer may have ended outside: then the notch must close.
             let (px, py) = ((lparam.0 & 0xFFFF) as i16 as i32, ((lparam.0 >> 16) & 0xFFFF) as i16 as i32);
             let mut rc = RECT::default();

@@ -71,6 +71,13 @@ impl Default for Hover {
     }
 }
 
+/// True while the notch still has to react to where the pointer is (so frames must keep coming).
+/// A text box that holds the notch open is not waiting on the pointer: counting it made the
+/// window redraw nonstop (and starve its timers) whenever the pointer left during typing.
+pub fn hover_pending(inside: bool, open: bool, text_focus: bool) -> bool {
+    inside != open && !(open && text_focus)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +138,18 @@ mod tests {
         h.pointer_inside(false, 1000);
         h.pointer_inside(true, 1100);
         assert!(h.update(1500));
+    }
+
+    #[test]
+    fn nothing_is_pending_while_a_text_box_holds_the_notch_open_with_the_pointer_away() {
+        assert!(!hover_pending(false, true, true));
+    }
+
+    #[test]
+    fn hover_is_pending_when_the_pointer_and_the_notch_disagree_without_typing() {
+        assert!(hover_pending(true, false, false));
+        assert!(hover_pending(false, true, false));
+        assert!(!hover_pending(true, true, false));
+        assert!(!hover_pending(false, false, false));
     }
 }

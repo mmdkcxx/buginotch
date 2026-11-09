@@ -526,7 +526,7 @@ impl App {
             self.r.snap();
         }
         let fully_closed = settled && !self.open && self.window_big;
-        let hover_pending = self.inside != self.open;
+        let hover_pending = isle_logic::layout::hover_pending(self.inside, self.open, self.text_focus());
         if !settled {
             // Keep a frame cadence while moving.
         } else {
