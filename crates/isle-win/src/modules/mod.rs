@@ -3,5 +3,6 @@
 
 pub mod charging;
 pub mod clock;
+pub mod headphones;
 pub mod music;
 pub mod timer;
