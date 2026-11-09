@@ -19,13 +19,15 @@ use windows::{
 pub const WM_APP_WAKE: u32 = WM_APP + 1;
 pub const WM_APP_MEDIA: u32 = WM_APP + 2;
 pub const WM_APP_LYRICS: u32 = WM_APP + 3;
-const TIMER_ANIM: usize = 1;
+/// Posted to ourselves to run the next animation frame, paced by the compositor.
+const WM_APP_TICK: u32 = WM_APP + 5;
 const TIMER_SECOND: usize = 2;
 const TIMER_WAKE: usize = 3;
 /// Defined in Win32::UI::Controls, which we do not pull in just for this.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
+    static TICK_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
     static HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static RENDERER: RefCell<Option<Renderer>> = const { RefCell::new(None) };
@@ -191,7 +193,11 @@ fn resize_renderer(hwnd: HWND) {
 }
 
 fn kick(hwnd: HWND) {
-    unsafe { SetTimer(Some(hwnd), TIMER_ANIM, 16, None) };
+    if !TICK_PENDING.replace(true) {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_APP_TICK, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 /// One animation/hover step. Borrows of `APP` are released before any window call.
@@ -208,10 +214,8 @@ fn tick(hwnd: HWND) {
         apply_window_size(hwnd);
         draw(hwnd);
     }
-    if !step.keep_ticking {
-        unsafe {
-            let _ = KillTimer(Some(hwnd), TIMER_ANIM);
-        }
+    if step.keep_ticking {
+        kick(hwnd);
     }
 }
 
@@ -317,7 +321,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             poll_and_draw(hwnd);
             LRESULT(0)
         }
-        WM_TIMER if wparam.0 == TIMER_ANIM => {
+        WM_APP_TICK => {
+            TICK_PENDING.set(false);
+            // Wait for the next compositor pass so frames land evenly on vsync;
+            // a WM_TIMER only fires every ~15.6 ms and gave uneven steps.
+            unsafe {
+                let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+            }
             tick(hwnd);
             LRESULT(0)
         }
