@@ -1,0 +1,254 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! The feature-module trait and the registry that pages through modules.
+
+use crate::canvas::{Canvas, ImageId, Rect};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Char(char),
+    Backspace,
+    Enter,
+    Escape,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    PointerMove(f32, f32),
+    PointerDown(f32, f32),
+    PointerWheel(f32),
+    Key(Key),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PillItem {
+    MiniCover(ImageId),
+    Equaliser { active: bool },
+}
+
+/// A short message shown in the closed pill (e.g. "⚡ 82%").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeekRequest {
+    pub text: String,
+    pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reaction {
+    None,
+    Redraw,
+    Peek(PeekRequest),
+}
+
+/// One feature: what it shows in the closed pill and its page in the open panel.
+pub trait Module {
+    fn id(&self) -> &'static str;
+    fn title(&self) -> &'static str;
+    fn pill_left(&self) -> Option<PillItem>;
+    fn pill_center(&self) -> Option<String> {
+        None
+    }
+    fn pill_priority(&self) -> u8 {
+        0
+    }
+    /// False for modules that only contribute to the pill (the clock).
+    fn has_page(&self) -> bool {
+        true
+    }
+    fn draw_panel(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64);
+    fn on_event(&mut self, e: &Event, area: Rect, now_ms: i64) -> Reaction;
+    /// Next epoch-ms at which this module needs a redraw; `None` means never (idle).
+    fn next_wake_ms(&self, now_ms: i64) -> Option<i64>;
+    fn wants_wide_panel(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Default)]
+pub struct Registry {
+    modules: Vec<Box<dyn Module>>,
+    current: usize,
+}
+
+impl Registry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, m: Box<dyn Module>) {
+        self.modules.push(m);
+    }
+
+    fn page_indices(&self) -> Vec<usize> {
+        (0..self.modules.len()).filter(|&i| self.modules[i].has_page()).collect()
+    }
+
+    pub fn page_count(&self) -> usize {
+        self.modules.iter().filter(|m| m.has_page()).count()
+    }
+
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    /// Moves `delta` pages, wrapping around.
+    pub fn go(&mut self, delta: i32) {
+        let n = self.page_count() as i32;
+        if n > 0 {
+            self.current = (self.current as i32 + delta).rem_euclid(n) as usize;
+        }
+    }
+
+    pub fn set_page(&mut self, index: usize) {
+        if index < self.page_count() {
+            self.current = index;
+        }
+    }
+
+    pub fn current_page_id(&self) -> Option<&'static str> {
+        self.current_page().map(|m| m.id())
+    }
+
+    pub fn current_page(&self) -> Option<&dyn Module> {
+        let i = *self.page_indices().get(self.current)?;
+        Some(self.modules[i].as_ref())
+    }
+
+    pub fn current_page_mut(&mut self) -> Option<&mut (dyn Module + 'static)> {
+        let i = *self.page_indices().get(self.current)?;
+        Some(self.modules[i].as_mut())
+    }
+
+    pub fn modules_mut(&mut self) -> &mut [Box<dyn Module>] {
+        &mut self.modules
+    }
+
+    /// Text for the closed pill's centre: the highest-priority module's, else `fallback`.
+    pub fn pill_center(&self, fallback: &str) -> String {
+        let mut best: Option<(u8, String)> = None;
+        for m in &self.modules {
+            if let Some(t) = m.pill_center() {
+                let p = m.pill_priority();
+                if best.as_ref().is_none_or(|(bp, _)| p > *bp) {
+                    best = Some((p, t));
+                }
+            }
+        }
+        best.map(|(_, t)| t).unwrap_or_else(|| fallback.to_string())
+    }
+
+    pub fn earliest_wake(&self, now_ms: i64) -> Option<i64> {
+        self.modules.iter().filter_map(|m| m.next_wake_ms(now_ms)).min()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::canvas::{Canvas, Rect, fit_text};
+    use crate::testing::RecordingCanvas;
+
+    struct Fake {
+        id: &'static str,
+        center: Option<String>,
+        priority: u8,
+        wake: Option<i64>,
+        page: bool,
+    }
+    impl Fake {
+        fn new(id: &'static str) -> Self {
+            Self { id, center: None, priority: 0, wake: None, page: true }
+        }
+    }
+    impl Module for Fake {
+        fn id(&self) -> &'static str { self.id }
+        fn title(&self) -> &'static str { self.id }
+        fn pill_left(&self) -> Option<PillItem> { None }
+        fn pill_center(&self) -> Option<String> { self.center.clone() }
+        fn pill_priority(&self) -> u8 { self.priority }
+        fn has_page(&self) -> bool { self.page }
+        fn draw_panel(&mut self, _c: &mut dyn Canvas, _a: Rect, _now: i64) {}
+        fn on_event(&mut self, _e: &Event, _a: Rect, _now: i64) -> Reaction { Reaction::None }
+        fn next_wake_ms(&self, _now: i64) -> Option<i64> { self.wake }
+    }
+
+    #[test]
+    fn fit_text_returns_whole_when_fits() {
+        let mut c = RecordingCanvas::default();
+        assert_eq!(fit_text(&mut c, "Hello", 12.0, 400, 100.0), "Hello");
+    }
+
+    #[test]
+    fn fit_text_truncates_with_ellipsis() {
+        let mut c = RecordingCanvas::default();
+        let out = fit_text(&mut c, "A very long song title indeed", 12.0, 400, 70.0);
+        assert!(out.ends_with('…'));
+        assert!(c.measure_text(&out, 12.0, 400) <= 70.0);
+        assert!(out.len() > 3);
+    }
+
+    #[test]
+    fn fit_text_handles_cjk_and_emoji() {
+        let mut c = RecordingCanvas::default();
+        let out = fit_text(&mut c, "日本語のタイトル🎵🎵🎵", 12.0, 400, 35.0);
+        assert!(out.ends_with('…'));
+        assert!(c.measure_text(&out, 12.0, 400) <= 35.0);
+    }
+
+    #[test]
+    fn fit_text_empty() {
+        let mut c = RecordingCanvas::default();
+        assert_eq!(fit_text(&mut c, "", 12.0, 400, 50.0), "");
+        assert_eq!(fit_text(&mut c, "abc", 12.0, 400, 0.0), "");
+    }
+
+    #[test]
+    fn registry_go_wraps() {
+        let mut r = Registry::new();
+        for id in ["a", "b", "c"] { r.add(Box::new(Fake::new(id))); }
+        assert_eq!(r.page_count(), 3);
+        r.go(-1);
+        assert_eq!(r.current_page_id(), Some("c"));
+        r.go(1);
+        assert_eq!(r.current_page_id(), Some("a"));
+    }
+
+    #[test]
+    fn registry_skips_modules_without_a_page() {
+        let mut r = Registry::new();
+        let mut clock = Fake::new("clock");
+        clock.page = false;
+        r.add(Box::new(clock));
+        r.add(Box::new(Fake::new("music")));
+        assert_eq!(r.page_count(), 1);
+        assert_eq!(r.current_page_id(), Some("music"));
+    }
+
+    #[test]
+    fn registry_priority_picks_highest_center_text() {
+        let mut r = Registry::new();
+        let mut a = Fake::new("a");
+        a.center = Some("low".into());
+        a.priority = 1;
+        let mut b = Fake::new("b");
+        b.center = Some("24:59".into());
+        b.priority = 10;
+        r.add(Box::new(a));
+        r.add(Box::new(b));
+        assert_eq!(r.pill_center("10:42"), "24:59");
+        assert_eq!(Registry::new().pill_center("10:42"), "10:42");
+    }
+
+    #[test]
+    fn earliest_wake_is_minimum() {
+        let mut r = Registry::new();
+        let mut a = Fake::new("a");
+        a.wake = Some(500);
+        let mut b = Fake::new("b");
+        b.wake = Some(200);
+        r.add(Box::new(a));
+        r.add(Box::new(b));
+        r.add(Box::new(Fake::new("c")));
+        assert_eq!(r.earliest_wake(0), Some(200));
+        assert_eq!(Registry::new().earliest_wake(0), None);
+    }
+}

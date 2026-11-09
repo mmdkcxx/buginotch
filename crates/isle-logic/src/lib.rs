@@ -2,8 +2,12 @@
 //! Platform-independent logic for Isle for Windows. Nothing here touches Windows APIs,
 //! so everything is unit-tested on Linux.
 
+pub mod canvas;
 pub mod layout;
 pub mod lrc;
+pub mod module;
 pub mod pomodoro;
 pub mod settings;
 pub mod spring;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
