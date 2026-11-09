@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The borderless, top-most, never-activated notch window.
 
+use crate::app::App;
 use crate::renderer::Renderer;
 use isle_logic::canvas::{Align, Color, Rect};
-use isle_logic::layout::{notch_x, target};
+use isle_logic::layout::notch_x;
+use isle_logic::settings::Settings;
 use std::cell::RefCell;
 use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
         System::LibraryLoader::GetModuleHandleW,
-        UI::{HiDpi::*, WindowsAndMessaging::*},
+        UI::{HiDpi::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
     },
     core::*,
 };
@@ -18,9 +20,13 @@ use windows::{
 pub const WM_APP_WAKE: u32 = WM_APP + 1;
 pub const WM_APP_MEDIA: u32 = WM_APP + 2;
 pub const WM_APP_LYRICS: u32 = WM_APP + 3;
+const TIMER_ANIM: usize = 1;
+/// Defined in Win32::UI::Controls, which we do not pull in just for this.
+const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
     static RENDERER: RefCell<Option<Renderer>> = const { RefCell::new(None) };
+    static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
 
 pub struct Window {
@@ -40,7 +46,7 @@ impl Window {
                 hCursor: LoadCursorW(None, IDC_ARROW)?,
                 ..Default::default()
             };
-            RegisterClassW(&wc);
+            let _ = RegisterClassW(&wc);
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
                 class,
@@ -55,27 +61,21 @@ impl Window {
                 Some(instance.into()),
                 None,
             )?;
-            let window = Window { hwnd };
-            let t = target(false, false, false).size;
-            let scale = scale_of(hwnd);
-            window.set_size_and_pos((t.w * scale).round() as i32, (t.h * scale).round() as i32);
+            APP.with(|a| *a.borrow_mut() = Some(App::new(Settings::default())));
+            apply_window_size(hwnd);
             let mut rc = RECT::default();
             GetClientRect(hwnd, &mut rc)?;
-            let renderer = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * scale)?;
+            let dpi = 96.0 * scale_of(hwnd);
+            let renderer = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, dpi)?;
             RENDERER.with(|r| *r.borrow_mut() = Some(renderer));
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             draw(hwnd);
-            Ok(window)
+            Ok(Window { hwnd })
         }
     }
 
     pub fn hwnd(&self) -> HWND {
         self.hwnd
-    }
-
-    /// Sizes the window and centres it at the top of the primary monitor.
-    pub fn set_size_and_pos(&self, w_px: i32, h_px: i32) {
-        place(self.hwnd, w_px, h_px);
     }
 }
 
@@ -84,7 +84,12 @@ fn scale_of(hwnd: HWND) -> f32 {
     if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
 }
 
-fn place(hwnd: HWND, w_px: i32, h_px: i32) {
+/// Sizes the window to the open panel or the closed pill (per `App::window_big`)
+/// and centres it at the top of the primary monitor.
+fn apply_window_size(hwnd: HWND) {
+    let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.window_dims(app.window_big)).unwrap_or((96.0, 26.0)));
+    let s = scale_of(hwnd);
+    let (w_px, h_px) = ((w * s).round() as i32, (h * s).round() as i32);
     unsafe {
         let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
         let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -97,28 +102,22 @@ fn place(hwnd: HWND, w_px: i32, h_px: i32) {
     }
 }
 
-/// Re-centres the closed notch after a DPI, resolution or monitor change.
-fn reposition_closed(hwnd: HWND) {
-    let t = target(false, false, false).size;
-    let s = scale_of(hwnd);
-    place(hwnd, (t.w * s).round() as i32, (t.h * s).round() as i32);
-}
-
-/// Draws the notch shape. Only the bottom corners are rounded: the rectangle extends
-/// above the window by the radius, so the top corners are cut off.
+/// Draws the notch shape centred at the top of the window. Only the bottom corners
+/// are rounded: the rectangle extends above the window by the radius.
 fn draw(hwnd: HWND) {
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
     if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
         return;
     }
-    let (w, h) = ((rc.right - rc.left) as f32 / s, (rc.bottom - rc.top) as f32 / s);
-    let r = target(false, false, false).radius;
+    let win_w = (rc.right - rc.left) as f32 / s;
+    let Some((w, h, r)) = APP.with(|a| a.borrow().as_ref().map(|app| app.dims())) else { return };
+    let x = ((win_w - w) / 2.0).max(0.0);
     RENDERER.with(|cell| {
         if let Some(renderer) = cell.borrow_mut().as_mut() {
             let _ = renderer.frame(|c| {
-                c.fill_round_rect(Rect { x: 0.0, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
-                c.draw_text("Isle", Rect { x: 0.0, y: 0.0, w, h }, 12.0, 600, Color(245, 246, 248, 255), Align::Center);
+                c.fill_round_rect(Rect { x, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
+                c.draw_text("Isle", Rect { x, y: 0.0, w, h: 26.0 }, 12.0, 600, Color(245, 246, 248, 255), Align::Center);
             });
         }
     });
@@ -135,6 +134,36 @@ fn resize_renderer(hwnd: HWND) {
             let _ = renderer.resize((rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * s);
         }
     });
+}
+
+fn kick(hwnd: HWND) {
+    unsafe { SetTimer(Some(hwnd), TIMER_ANIM, 16, None) };
+}
+
+/// One animation/hover step. Borrows of `APP` are released before any window call.
+fn tick(hwnd: HWND) {
+    let step = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.step()));
+    let Some(step) = step else { return };
+    if step.opened {
+        APP.with(|a| a.borrow_mut().as_mut().map(|app| app.window_big = true));
+        apply_window_size(hwnd);
+    }
+    draw(hwnd);
+    if step.fully_closed {
+        APP.with(|a| a.borrow_mut().as_mut().map(|app| app.window_big = false));
+        apply_window_size(hwnd);
+        draw(hwnd);
+    }
+    if !step.keep_ticking {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), TIMER_ANIM);
+        }
+    }
+}
+
+fn pointer(hwnd: HWND, inside: bool) {
+    APP.with(|a| a.borrow_mut().as_mut().map(|app| app.pointer(inside)));
+    kick(hwnd);
 }
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -154,9 +183,30 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             draw(hwnd);
             LRESULT(0)
         }
+        WM_MOUSEMOVE => {
+            let mut tme = TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            unsafe {
+                let _ = TrackMouseEvent(&mut tme);
+            }
+            pointer(hwnd, true);
+            LRESULT(0)
+        }
+        WM_MOUSELEAVE => {
+            pointer(hwnd, false);
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == TIMER_ANIM => {
+            tick(hwnd);
+            LRESULT(0)
+        }
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_DPICHANGED | WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
-            reposition_closed(hwnd);
+            apply_window_size(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
