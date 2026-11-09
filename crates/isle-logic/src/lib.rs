@@ -13,6 +13,7 @@ pub mod peek;
 pub mod pomodoro;
 pub mod settings;
 pub mod spring;
+pub mod timer_store;
 pub mod timefmt;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

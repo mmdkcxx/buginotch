@@ -4,6 +4,12 @@
 const DAYS: [&str; 7] = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
+/// Remaining time as "mm:ss", rounded up to whole seconds, never negative.
+pub fn format_mmss(ms: i64) -> String {
+    let secs = (ms.max(0) + 999) / 1000;
+    format!("{:02}:{:02}", secs / 60, secs % 60)
+}
+
 pub fn format_clock(hour: u32, minute: u32) -> String {
     format!("{hour:02}:{minute:02}")
 }
@@ -18,6 +24,16 @@ pub fn format_date(year: i32, month: u32, day: u32, weekday: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_mmss_rounds_up() {
+        assert_eq!(format_mmss(1_499), "00:02");
+        assert_eq!(format_mmss(1_000), "00:01");
+        assert_eq!(format_mmss(0), "00:00");
+        assert_eq!(format_mmss(-5), "00:00");
+        assert_eq!(format_mmss(1_500_000), "25:00");
+        assert_eq!(format_mmss(5_999_000), "99:59");
+    }
 
     #[test]
     fn clock_pads_hours_and_minutes() {
