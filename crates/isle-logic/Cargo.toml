@@ -1,0 +1,13 @@
+[package]
+name = "isle-logic"
+description = "Platform-independent logic for Isle for Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
