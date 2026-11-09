@@ -1,0 +1,26 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - run: choco install nsis -y --no-progress
+      - name: Build exe
+        run: cargo build --release --target x86_64-pc-windows-gnu -p isle-win
+      - name: Build installer
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          mkdir -p dist
+          "/c/Program Files (x86)/NSIS/makensis.exe" -DVERSION="$VERSION" installer/isle-win.nsi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/IsleWin-Setup-*.exe
