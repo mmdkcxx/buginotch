@@ -20,11 +20,27 @@ const AMBER: Color = Color(251, 191, 36, 255);
 const BADGE: Color = Color(43, 47, 54, 255);
 const ENTER_MS: f32 = 320.0;
 const COPIED_MS: i64 = 1000;
-/// How long a removed tile takes to shrink away.
-const LEAVE_MS: f32 = 260.0;
+/// A removed tile shrinks and fades first; only then do its neighbours glide into the gap.
+const FADE_MS: f32 = 220.0;
+const SLIDE_DELAY_MS: f32 = 120.0;
+const SLIDE_MS: f32 = 420.0;
+/// Total time a removal keeps animating.
+const LEAVE_MS: f32 = SLIDE_DELAY_MS + SLIDE_MS;
 
 fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
+fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Settles with a small overshoot, so the neighbours land softly instead of stopping dead.
+fn ease_out_soft(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0) - 1.0;
+    let c = 1.1;
+    1.0 + (c + 1.0) * t * t * t + c * t * t
 }
 
 /// A tile on its way out: it keeps its old slot while it fades.
@@ -108,7 +124,7 @@ impl ShelfModule {
             let a = (enter * 255.0) as u8;
             let fade = |col: Color| Color(col.0, col.1, col.2, ((col.3 as f32) * enter) as u8);
             let k = match self.copied {
-                Some((id, t0)) if id == id => {
+                Some((cid, t0)) if cid == id => {
                     let ms = (now_ms - t0) as f32;
                     (ms / 120.0).min((COPIED_MS as f32 - ms) / 280.0).clamp(0.0, 1.0)
                 }
@@ -230,7 +246,7 @@ impl Module for ShelfModule {
             // Tiles after a removed one glide left into the gap.
             for g in &self.leaving {
                 if i >= g.index {
-                    let e = ease_out(((now_ms - g.t0).max(0)) as f32 / LEAVE_MS);
+                    let e = ease_out_soft(((now_ms - g.t0).max(0) as f32 - SLIDE_DELAY_MS) / SLIDE_MS);
                     r.x += (TILE_W + TILE_GAP) * (1.0 - e);
                 }
             }
@@ -243,10 +259,10 @@ impl Module for ShelfModule {
         }
         // Tiles being removed shrink and fade where they were.
         for g in &self.leaving {
-            let e = ease_out(((now_ms - g.t0).max(0)) as f32 / LEAVE_MS);
+            let e = ease_in_out(((now_ms - g.t0).max(0)) as f32 / FADE_MS);
             let r = tile_rect(&l, g.index, self.scroll);
-            let s = 1.0 - 0.2 * e;
-            let r = Rect { x: r.x + r.w * (1.0 - s) / 2.0, y: r.y + r.h * (1.0 - s) / 2.0 - 8.0 * e, w: r.w * s, h: r.h * s };
+            let s = 1.0 - 0.3 * e;
+            let r = Rect { x: r.x + r.w * (1.0 - s) / 2.0, y: r.y + r.h * (1.0 - s) / 2.0 - 6.0 * e, w: r.w * s, h: r.h * s };
             self.draw_tile(c, r, &g.path, g.id, 1.0 - e, false, now_ms);
         }
         c.pop_clip();
@@ -331,8 +347,14 @@ impl Module for ShelfModule {
     }
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
-        let busy = now_ms < self.anim_until || self.clear_btn.busy(now_ms) || self.thumbs.values().any(|t| matches!(t, Thumb::Loading)) || !self.fresh.is_empty();
-        // While pictures are on their way, look again soon (cheap: no redraw unless one arrives).
-        busy.then_some(now_ms + 40)
+        // A running animation needs a frame every refresh (a wake within ~24 ms makes the
+        // window run vsync-paced frames); pictures on their way only need an occasional look.
+        let animating = now_ms < self.anim_until || !self.leaving.is_empty() || self.clear_btn.busy(now_ms);
+        let waiting = self.thumbs.values().any(|t| matches!(t, Thumb::Loading)) || !self.fresh.is_empty();
+        if animating {
+            Some(now_ms + 16)
+        } else {
+            waiting.then_some(now_ms + 40)
+        }
     }
 }
