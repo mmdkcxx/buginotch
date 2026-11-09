@@ -269,7 +269,7 @@ impl App {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }
                         PillItem::Equaliser { .. } => {
-                            let t = epoch_ms() as f32 / 1000.0;
+                            let t = self.start.elapsed().as_secs_f32();
                             for i in 0..3 {
                                 let bar = 3.0 + 9.0 * equaliser::bar(t, i);
                                 c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, a));
@@ -291,7 +291,7 @@ impl App {
                     c.draw_text(&title, l.title, 13.0, 600, Color(245, 246, 248, ca), Align::Left);
                     let sub = fit_text(c, &card.sub, 11.0, 400, l.sub.w);
                     c.draw_text(&sub, l.sub, 11.0, 400, Color(139, 144, 153, ca), Align::Left);
-                    let t = epoch_ms() as f32 / 1000.0;
+                    let t = self.start.elapsed().as_secs_f32();
                     for i in 0..3 {
                         let bar = 3.0 + 9.0 * equaliser::bar(t, i);
                         c.fill_round_rect(Rect { x: l.eq.x + i as f32 * 4.0, y: l.eq.y + l.eq.h - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ca));
