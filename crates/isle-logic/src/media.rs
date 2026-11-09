@@ -8,7 +8,19 @@ pub fn friendly_app(id: &str) -> String {
         Some((pkg, "App")) => {
             let base = pkg.split('_').next().unwrap_or(pkg);
             let base = base.rsplit('.').next().unwrap_or(base);
-            base.strip_suffix("Music").unwrap_or(base)
+            if base.starts_with("Spotify") {
+                return "Spotify".to_string();
+            }
+            let base = base.strip_suffix("Win").unwrap_or(base);
+            // "AppleMusic" -> "Apple Music"
+            let mut out = String::new();
+            for (i, ch) in base.chars().enumerate() {
+                if i > 0 && ch.is_uppercase() {
+                    out.push(' ');
+                }
+                out.push(ch);
+            }
+            return out;
         }
         Some((_, after)) => after,
         None => id.strip_suffix(".exe").unwrap_or(id),
@@ -69,6 +81,11 @@ mod tests {
     #[test]
     fn friendly_app_handles_packaged_spotify_id() {
         assert_eq!(friendly_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!App"), "Spotify");
+    }
+
+    #[test]
+    fn friendly_app_names_apple_music() {
+        assert_eq!(friendly_app("AppleInc.AppleMusicWin_nzyj5cx40ttqa!App"), "Apple Music");
     }
 
     #[test]
