@@ -42,6 +42,14 @@ impl Feed {
     }
 }
 
+/// Which notification fills the large card and which three sit at the side. A selected
+/// notification is the large one and the newest rejoin the side list; otherwise the newest leads.
+pub fn arrange(items: &[Notif], selected: Option<u32>) -> (Option<usize>, Vec<usize>) {
+    let main = selected.and_then(|id| items.iter().position(|n| n.id == id)).or(if items.is_empty() { None } else { Some(0) });
+    let side = (0..items.len()).filter(|&i| Some(i) != main).take(3).collect();
+    (main, side)
+}
+
 /// One line for the pill: "Dina · Jadi makan malam?". Line breaks become spaces.
 pub fn snippet(n: &Notif) -> String {
     let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -129,5 +137,24 @@ mod tests {
     fn tile_color_is_stable_per_app() {
         assert_eq!(tile_color("WhatsApp"), tile_color("WhatsApp"));
         assert_ne!(tile_color("WhatsApp"), tile_color("Gmail"));
+    }
+
+    #[test]
+    fn newest_leads_when_nothing_is_selected() {
+        let items: Vec<Notif> = (1..=5).map(|i| n(i, 0)).collect();
+        assert_eq!(arrange(&items, None), (Some(0), vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn a_selected_notification_takes_the_large_card_and_the_rest_fill_the_side() {
+        let items: Vec<Notif> = (1..=5).map(|i| n(i, 0)).collect();
+        assert_eq!(arrange(&items, Some(3)), (Some(2), vec![0, 1, 3]));
+    }
+
+    #[test]
+    fn a_selection_that_disappeared_falls_back_to_the_newest() {
+        let items: Vec<Notif> = (1..=3).map(|i| n(i, 0)).collect();
+        assert_eq!(arrange(&items, Some(99)), (Some(0), vec![1, 2]));
+        assert_eq!(arrange(&[], Some(1)), (None, vec![]));
     }
 }
