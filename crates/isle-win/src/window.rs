@@ -28,6 +28,7 @@ const TIMER_WAKE: usize = 3;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
+    static REGION: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((0, 0, 0)) };
     static TICK_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
     static HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -126,7 +127,7 @@ fn place_window(hwnd: HWND) {
 /// Limits the window to the notch's current footprint (the open panel or the closed pill)
 /// with a window region, so the transparent rest neither shows nor takes mouse input.
 fn apply_window_size(hwnd: HWND) {
-    let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.window_dims(app.window_big)).unwrap_or((96.0, 26.0)));
+    let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.region_dims()).unwrap_or((96.0, 26.0)));
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
     if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
@@ -135,6 +136,10 @@ fn apply_window_size(hwnd: HWND) {
     let win_w = rc.right - rc.left;
     let (w_px, h_px) = ((w * s).round() as i32, (h * s).round() as i32);
     let left = (win_w - w_px) / 2;
+    // Skip identical regions (this runs every animation frame).
+    if REGION.replace((left, w_px, h_px)) == (left, w_px, h_px) {
+        return;
+    }
     unsafe {
         let rgn = CreateRectRgn(left, 0, left + w_px, h_px);
         // The window owns the region after a successful call.
@@ -272,6 +277,7 @@ fn tick(hwnd: HWND) {
         APP.with(|a| a.borrow_mut().as_mut().map(|app| app.window_big = true));
         apply_window_size(hwnd);
     }
+    apply_window_size(hwnd);
     draw(hwnd);
     if step.fully_closed {
         APP.with(|a| a.borrow_mut().as_mut().map(|app| app.window_big = false));
@@ -354,7 +360,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 a.borrow_mut().as_mut().is_some_and(|app| {
                     let (w, _, _) = app.dims();
                     let r = app.click(px / s - (win_w - w) / 2.0, py / s);
-                    r || app.sync_lyrics()
+                    // Not `r || sync`: sync_lyrics must always run after a click.
+                    let resized = app.sync_lyrics();
+                    r || resized
                 })
             });
             if APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.is_open())) {

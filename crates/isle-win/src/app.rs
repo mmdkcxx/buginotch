@@ -102,6 +102,16 @@ impl App {
         }
     }
 
+    /// What the window region must cover now (DIPs): the shape as drawn, and where it is heading.
+    pub fn region_dims(&self) -> (f32, f32) {
+        let (tw, th) = self.window_dims(self.window_big);
+        if self.window_big {
+            (tw.max(self.w.value.ceil() + 1.0), th.max(self.h.value.ceil() + 1.0))
+        } else {
+            (tw, th)
+        }
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -115,6 +125,8 @@ impl App {
         }
         self.lyrics = want;
         if self.open {
+            // Widening or narrowing the open panel should glide, not bounce past its size.
+            self.w.set_damping(self.w.critical_damping());
             let t = target(true, self.wide, self.lyrics);
             self.w.target = t.size.w;
             self.h.target = t.size.h;
@@ -249,6 +261,7 @@ impl App {
         let want_open = self.hover.update(self.now_ms());
         let mut opened = false;
         if want_open != self.open {
+            self.w.set_damping(22.0);
             self.open = want_open;
             opened = want_open;
             let (w, h, r) = if want_open {

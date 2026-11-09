@@ -30,6 +30,15 @@ impl Spring {
         }
     }
 
+    /// Changes the damping; `2 * sqrt(stiffness)` is critical (no overshoot).
+    pub fn set_damping(&mut self, damping: f32) {
+        self.damping = damping;
+    }
+
+    pub fn critical_damping(&self) -> f32 {
+        2.0 * self.stiffness.sqrt()
+    }
+
     pub fn is_settled(&self) -> bool {
         (self.value - self.target).abs() < 0.05 && self.velocity.abs() < 0.05
     }
