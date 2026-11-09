@@ -17,7 +17,8 @@ const FLASH: Color = Color(18, 48, 31, 255);
 const GREEN: Color = Color(52, 211, 153, 255);
 const LINK: Color = Color(125, 178, 255, 255);
 const AMBER: Color = Color(251, 191, 36, 255);
-const FLASH_MS: i64 = 700;
+/// How long a copied row says "Tersalin".
+const FLASH_MS: i64 = 1000;
 
 pub struct ClipboardModule {
     history: History,
@@ -113,8 +114,12 @@ impl Module for ClipboardModule {
             if r.y + r.h < l.list.y || r.y > l.list.y + l.list.h {
                 continue;
             }
+            // 0..1 envelope of the "copied" message: quick in, hold, soft out.
             let k = match self.flashed {
-                Some((id, t0)) if id == e.id => (1.0 - (now_ms - t0) as f32 / FLASH_MS as f32).clamp(0.0, 1.0),
+                Some((id, t0)) if id == e.id => {
+                    let ms = (now_ms - t0) as f32;
+                    (ms / 120.0).min((FLASH_MS as f32 - ms) / 280.0).clamp(0.0, 1.0)
+                }
                 _ => 0.0,
             };
             let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * k).round() as u8;
@@ -122,7 +127,12 @@ impl Module for ClipboardModule {
             let flat: String = e.text.split_whitespace().collect::<Vec<_>>().join(" ");
             let text_box = Rect { x: r.x + 12.0, y: r.y, w: r.w - 12.0 - DELETE_W - 4.0, h: r.h };
             let shown = fit_text(c, &flat, 12.5, 400, text_box.w);
-            c.draw_text(&shown, text_box, 12.5, 400, if e.kind() == Kind::Link { LINK } else { WHITE }, Align::Left);
+            let base = if e.kind() == Kind::Link { LINK } else { WHITE };
+            c.draw_text(&shown, Rect { y: text_box.y - 4.0 * k, ..text_box }, 12.5, 400, Color(base.0, base.1, base.2, ((1.0 - k) * 255.0) as u8), Align::Left);
+            if k > 0.0 {
+                // The check slides up into place as the message fades in.
+                c.draw_text("✓  Tersalin ke clipboard", Rect { y: text_box.y + 6.0 * (1.0 - k), ..text_box }, 12.5, 650, Color(GREEN.0, GREEN.1, GREEN.2, (k * 255.0) as u8), Align::Left);
+            }
             let star = Rect { x: r.x + r.w - DELETE_W, y: r.y, w: DELETE_W, h: r.h };
             let pop = match self.star_pop {
                 Some((id, t0)) if id == e.id => {
