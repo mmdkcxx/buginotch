@@ -5,7 +5,6 @@ use crate::app::App;
 use crate::renderer::Renderer;
 use crate::tray::{self, ID_AUTOSTART, ID_QUIT, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
-use isle_logic::settings::Settings;
 use std::cell::RefCell;
 use windows::{
     Win32::{
@@ -65,8 +64,7 @@ impl Window {
                 Some(instance.into()),
                 None,
             )?;
-            let path = crate::system::data_path("settings.toml");
-            let mut settings = std::fs::read_to_string(&path).map(|t| Settings::from_toml(&t)).unwrap_or_default();
+            let mut settings = crate::settings_io::load();
             settings.autostart = crate::system::is_autostart();
             APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
             let watcher = crate::media_win::MediaWatcher::spawn(hwnd);
@@ -138,18 +136,9 @@ fn draw(hwnd: HWND) {
     });
 }
 
-/// Writes settings.toml (autostart mirrors the registry).
+/// Records the registry's autostart state in settings.toml.
 fn save_settings() {
-    APP.with(|a| {
-        if let Some(app) = a.borrow_mut().as_mut() {
-            app.settings.autostart = crate::system::is_autostart();
-            let path = crate::system::data_path("settings.toml");
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(path, app.settings.to_toml());
-        }
-    });
+    crate::settings_io::update(|s| s.autostart = crate::system::is_autostart());
 }
 
 /// Polls the modules, resizes the window if the pill changed width, redraws, and

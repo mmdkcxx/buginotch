@@ -15,7 +15,6 @@ use windows::{
         System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize},
         UI::WindowsAndMessaging::PostMessageW,
     },
-    core::*,
 };
 
 type Manager = GlobalSystemMediaTransportControlsSessionManager;

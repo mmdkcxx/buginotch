@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{charging::ChargingModule, clock::ClockModule, placeholder::Placeholder};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect};
@@ -52,7 +52,7 @@ impl App {
         let mut registry = Registry::new();
         registry.add(Box::new(ClockModule));
         registry.add(Box::new(ChargingModule::new()));
-                registry.add(Box::new(Placeholder::new("timer", "Focus timer")));
+                registry.add(Box::new(TimerModule::new(settings.pomodoro.clone())));
         App {
             registry,
             settings,

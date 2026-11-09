@@ -4,4 +4,4 @@
 pub mod charging;
 pub mod clock;
 pub mod music;
-pub mod placeholder;
+pub mod timer;

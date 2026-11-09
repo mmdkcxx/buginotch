@@ -15,5 +15,6 @@ pub mod settings;
 pub mod spring;
 pub mod timer_store;
 pub mod timefmt;
+pub mod timer_layout;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

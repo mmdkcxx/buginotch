@@ -7,6 +7,7 @@ mod media_win;
 mod modules;
 mod power;
 mod renderer;
+mod settings_io;
 mod system;
 mod tray;
 mod ui;
