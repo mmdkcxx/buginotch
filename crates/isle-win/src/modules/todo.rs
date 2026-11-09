@@ -5,6 +5,7 @@
 use crate::system::{data_path, epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
 use isle_logic::module::{EditKey, Event, Module, PillItem, Reaction};
+use super::button::Button;
 use super::textbox::TextBox;
 use isle_logic::peek::Peek;
 use isle_logic::todo::{TodoList, day_number, from_json, to_json};
@@ -18,7 +19,6 @@ const ROW_DONE: Color = Color(18, 48, 31, 255);
 const RING: Color = Color(91, 97, 108, 255);
 const GREEN: Color = Color(52, 211, 153, 255);
 const ON_GREEN: Color = Color(4, 19, 13, 255);
-const CHIP: Color = Color(28, 31, 36, 255);
 const FIELD_BORDER: Color = Color(58, 63, 72, 255);
 const DONE_TEXT: Color = Color(185, 196, 189, 255);
 const RED: Color = Color(255, 122, 122, 255);
@@ -31,6 +31,8 @@ pub struct TodoModule {
     adding: bool,
     editing: bool,
     field: TextBox,
+    add_btn: Button,
+    edit_btn: Button,
     scroll: f32,
     /// Tick animations: task id -> (start ms, ticking on).
     ticks: HashMap<u64, (i64, bool)>,
@@ -52,7 +54,7 @@ impl TodoModule {
         if list.prune(day) {
             save(&list);
         }
-        Self { list, adding: false, editing: false, field: TextBox::new(isle_logic::todo::MAX_TASK_CHARS), scroll: 0.0, ticks: HashMap::new(), day, anim_until: 0, peek: Peek::default() }
+        Self { list, adding: false, editing: false, field: TextBox::new(isle_logic::todo::MAX_TASK_CHARS), add_btn: Button::new(GREEN), edit_btn: Button::new(GREEN), scroll: 0.0, ticks: HashMap::new(), day, anim_until: 0, peek: Peek::default() }
     }
 
     fn save(&self) {
@@ -88,11 +90,6 @@ fn save(list: &TodoList) {
         let _ = std::fs::create_dir_all(dir);
     }
     let _ = std::fs::write(path, to_json(list));
-}
-
-fn chip(c: &mut dyn Canvas, r: Rect, label: &str, active: bool) {
-    c.fill_round_rect(r, r.h / 2.0, if active { GREEN } else { CHIP });
-    c.draw_text(label, r, 12.5, 650, if active { ON_GREEN } else { WHITE }, Align::Center);
 }
 
 /// A line of thickness `w` from `a` to `b`.
@@ -160,8 +157,8 @@ impl Module for TodoModule {
         let (done, total) = self.list.counts();
         c.draw_text(&format!("{done}/{total}"), l.count, 40.0, 700, WHITE, Align::Left);
         c.draw_text("Tugas selesai hari ini", l.caption, 12.0, 400, DIM, Align::Left);
-        chip(c, l.add, if self.adding { "Batal" } else { "+ Tambah" }, false);
-        chip(c, l.edit, if self.editing { "Selesai" } else { "Ubah" }, self.editing);
+        self.add_btn.draw(c, l.add, if self.adding { "Batal" } else { "+ Tambah" }, false, now_ms);
+        self.edit_btn.draw(c, l.edit, if self.editing { "Selesai" } else { "Ubah" }, self.editing, now_ms);
 
         self.field.hide_caret();
         if self.adding {
@@ -232,6 +229,7 @@ impl Module for TodoModule {
                 let rows = self.list.tasks().len();
                 match hit(area, self.adding, self.editing, self.scroll, rows, *x, *y) {
                     Some(TodoHit::Add) => {
+                        self.add_btn.press(now_ms);
                         if self.adding {
                             self.stop_adding();
                         } else {
@@ -239,6 +237,7 @@ impl Module for TodoModule {
                         }
                     }
                     Some(TodoHit::Edit) => {
+                        self.edit_btn.press(now_ms);
                         self.stop_adding();
                         self.editing = !self.editing;
                     }
@@ -295,7 +294,8 @@ impl Module for TodoModule {
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         let blink = self.adding.then(|| self.field.next_blink_ms(now_ms));
-        let anim = (now_ms < self.anim_until).then_some(now_ms + 16);
+        let busy = self.add_btn.busy(now_ms) || self.edit_btn.busy(now_ms);
+        let anim = (now_ms < self.anim_until || busy).then_some(now_ms + 16);
         // Look again at the start of each minute while a reminder is waiting.
         let waiting = self.list.tasks().iter().any(|t| !t.done && t.due.is_some());
         let minute = waiting.then(|| now_ms + 60_000 - now_ms.rem_euclid(60_000) + 200);

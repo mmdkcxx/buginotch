@@ -2,6 +2,7 @@
 //! Clipboard history page: recent copied text with search, pin, click-to-copy, pause and
 //! clear. History lives in memory only; pinned entries are saved to `clipboard.json`.
 
+use super::button::Button;
 use super::textbox::TextBox;
 use crate::system::{data_path, epoch_ms};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
@@ -15,14 +16,16 @@ const ROW: Color = Color(20, 22, 26, 255);
 const FLASH: Color = Color(18, 48, 31, 255);
 const GREEN: Color = Color(52, 211, 153, 255);
 const LINK: Color = Color(125, 178, 255, 255);
-const CHIP: Color = Color(28, 31, 36, 255);
 const AMBER: Color = Color(251, 191, 36, 255);
-const ON_GREEN: Color = Color(4, 19, 13, 255);
 const FLASH_MS: i64 = 700;
 
 pub struct ClipboardModule {
     history: History,
     search: TextBox,
+    pause_btn: Button,
+    clear_btn: Button,
+    /// The star last pressed, for a pop animation.
+    star_pop: Option<(u64, i64)>,
     focused: bool,
     scroll: f32,
     /// Text we put on the clipboard ourselves; the change it causes is not recorded.
@@ -41,7 +44,7 @@ impl ClipboardModule {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         history.restore(saved, epoch_ms());
-        Self { history, search: TextBox::new(60), focused: false, scroll: 0.0, own: None, to_copy: None, flashed: None, anim_until: 0 }
+        Self { history, search: TextBox::new(60), pause_btn: Button::new(AMBER), clear_btn: Button::new(AMBER), star_pop: None, focused: false, scroll: 0.0, own: None, to_copy: None, flashed: None, anim_until: 0 }
     }
 
     fn save_pins(&self) {
@@ -51,11 +54,6 @@ impl ClipboardModule {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(path, serde_json::to_string(&pins).unwrap_or_default());
-    }
-
-    fn chip(c: &mut dyn Canvas, r: Rect, label: &str, on: bool) {
-        c.fill_round_rect(r, r.h / 2.0, if on { AMBER } else { CHIP });
-        c.draw_text(label, r, 12.5, 650, if on { ON_GREEN } else { WHITE }, Align::Center);
     }
 }
 
@@ -97,8 +95,8 @@ impl Module for ClipboardModule {
         let rows = self.history.visible(&query);
         c.draw_text(&format!("{}", self.history.visible("").len()), l.count, 40.0, 700, WHITE, Align::Left);
         c.draw_text(if self.history.paused { "Riwayat dijeda" } else { "Salinan tersimpan" }, l.caption, 12.0, 400, if self.history.paused { AMBER } else { DIM }, Align::Left);
-        Self::chip(c, l.add, if self.history.paused { "Lanjut" } else { "Jeda" }, self.history.paused);
-        Self::chip(c, l.edit, "Hapus", false);
+        self.pause_btn.draw(c, l.add, if self.history.paused { "Lanjut" } else { "Jeda" }, self.history.paused, now_ms);
+        self.clear_btn.draw(c, l.edit, "Hapus", false, now_ms);
 
         self.search.hide_caret();
         self.search.draw(c, l.field, area, "Cari salinan", self.focused, now_ms);
@@ -126,7 +124,14 @@ impl Module for ClipboardModule {
             let shown = fit_text(c, &flat, 12.5, 400, text_box.w);
             c.draw_text(&shown, text_box, 12.5, 400, if e.kind() == Kind::Link { LINK } else { WHITE }, Align::Left);
             let star = Rect { x: r.x + r.w - DELETE_W, y: r.y, w: DELETE_W, h: r.h };
-            c.draw_text(if e.pinned { "★" } else { "☆" }, star, 14.0, 400, if e.pinned { GREEN } else { DIM }, Align::Center);
+            let pop = match self.star_pop {
+                Some((id, t0)) if id == e.id => {
+                    let t = (now_ms - t0) as f32 / 260.0;
+                    if (0.0..1.0).contains(&t) { (std::f32::consts::PI * t).sin() } else { 0.0 }
+                }
+                _ => 0.0,
+            };
+            c.draw_text(if e.pinned { "★" } else { "☆" }, star, 14.0 + 6.0 * pop, 400, if e.pinned { GREEN } else { DIM }, Align::Center);
         }
         c.pop_clip();
         if max > 0.0 {
@@ -147,8 +152,12 @@ impl Module for ClipboardModule {
                 let hit = hit(area, true, false, self.scroll, ids.len(), *x, *y);
                 self.focused = matches!(hit, Some(TodoHit::Field));
                 match hit {
-                    Some(TodoHit::Add) => self.history.paused = !self.history.paused,
+                    Some(TodoHit::Add) => {
+                        self.pause_btn.press(now_ms);
+                        self.history.paused = !self.history.paused;
+                    }
                     Some(TodoHit::Edit) => {
+                        self.clear_btn.press(now_ms);
                         self.history.clear();
                         self.save_pins();
                     }
@@ -164,6 +173,8 @@ impl Module for ClipboardModule {
                             if let Some(id) = ids.get(i) {
                                 self.history.toggle_pin(*id);
                                 self.save_pins();
+                                self.star_pop = Some((*id, now_ms));
+                                self.anim_until = now_ms + 300;
                             }
                         } else if let Some(entry) = self.history.visible(&query).get(i) {
                             self.to_copy = Some(entry.text.clone());
@@ -212,7 +223,8 @@ impl Module for ClipboardModule {
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         let blink = self.focused.then(|| self.search.next_blink_ms(now_ms));
-        let anim = (now_ms < self.anim_until).then_some(now_ms + 16);
+        let busy = self.pause_btn.busy(now_ms) || self.clear_btn.busy(now_ms);
+        let anim = (now_ms < self.anim_until || busy).then_some(now_ms + 16);
         [blink, anim].into_iter().flatten().min()
     }
 }
