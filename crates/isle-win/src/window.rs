@@ -79,6 +79,7 @@ impl Window {
             if let Ok(t) = Tray::add(hwnd) {
                 TRAY.with(|c| *c.borrow_mut() = Some(t));
             }
+            place_window(hwnd);
             apply_window_size(hwnd);
             let mut rc = RECT::default();
             GetClientRect(hwnd, &mut rc)?;
@@ -103,12 +104,13 @@ fn scale_of(hwnd: HWND) -> f32 {
     if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
 }
 
-/// Sizes the window to the open panel or the closed pill (per `App::window_big`)
-/// and centres it at the top of the primary monitor.
-fn apply_window_size(hwnd: HWND) {
-    let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.window_dims(app.window_big)).unwrap_or((96.0, 26.0)));
+/// Places the window, always at the size of the largest open panel, centred at the top
+/// of the primary monitor. It never changes size otherwise: resizing the window (and the
+/// swap chain with it) blinked. What is shown and clickable is set by `apply_window_size`.
+fn place_window(hwnd: HWND) {
     let s = scale_of(hwnd);
-    let (w_px, h_px) = ((w * s).round() as i32, (h * s).round() as i32);
+    let (w_px, h_px) = buffer_px(s);
+    let (w_px, h_px) = (w_px as i32, h_px as i32);
     unsafe {
         let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
         let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -118,6 +120,27 @@ fn apply_window_size(hwnd: HWND) {
         let r = info.rcMonitor;
         let x = r.left + notch_x(r.right - r.left, w_px);
         let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, r.top, w_px, h_px, SWP_NOACTIVATE);
+    }
+}
+
+/// Limits the window to the notch's current footprint (the open panel or the closed pill)
+/// with a window region, so the transparent rest neither shows nor takes mouse input.
+fn apply_window_size(hwnd: HWND) {
+    let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.window_dims(app.window_big)).unwrap_or((96.0, 26.0)));
+    let s = scale_of(hwnd);
+    let mut rc = RECT::default();
+    if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
+        return;
+    }
+    let win_w = rc.right - rc.left;
+    let (w_px, h_px) = ((w * s).round() as i32, (h * s).round() as i32);
+    let left = (win_w - w_px) / 2;
+    unsafe {
+        let rgn = CreateRectRgn(left, 0, left + w_px, h_px);
+        // The window owns the region after a successful call.
+        if SetWindowRgn(hwnd, Some(rgn), false) == 0 {
+            let _ = DeleteObject(rgn.into());
+        }
     }
 }
 
@@ -144,14 +167,17 @@ fn draw(hwnd: HWND) {
     if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
         return;
     }
-    let win_w = (rc.right - rc.left) as f32 / s;
+    let client_px = (rc.right - rc.left) as f32;
     let mut lost = false;
     APP.with(|a| {
         let mut a = a.borrow_mut();
         let Some(app) = a.as_mut() else { return };
         RENDERER.with(|r| {
             if let Some(renderer) = r.borrow_mut().as_mut() {
-                if let Err(e) = renderer.frame(|c| app.paint(c, win_w)) {
+                // Paint centred in the (fixed-size) buffer, and keep the buffer centred on the window.
+                let buf_px = renderer.size().0 as f32;
+                renderer.set_offset_x((client_px - buf_px) / 2.0);
+                if let Err(e) = renderer.frame(|c| app.paint(c, buf_px / s)) {
                     // D2DERR_RECREATE_TARGET, DXGI_ERROR_DEVICE_REMOVED / _RESET: rebuild.
                     if matches!(e.code().0 as u32, 0x8899000C | 0x887A0005 | 0x887A0007) {
                         lost = true;
@@ -397,6 +423,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_DPICHANGED | WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
+            place_window(hwnd);
             apply_window_size(hwnd);
             LRESULT(0)
         }

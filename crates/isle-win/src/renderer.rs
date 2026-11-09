@@ -31,6 +31,7 @@ pub struct Renderer {
     font_family: HSTRING,
     dpi: f32,
     size: (u32, u32),
+    offset_x: f32,
     _dcomp: IDCompositionDevice,
     _target: IDCompositionTarget,
     _visual: IDCompositionVisual,
@@ -89,10 +90,28 @@ impl Renderer {
                 font_family,
                 dpi,
                 size: (w_px.max(1), h_px.max(1)),
+                offset_x: 0.0,
                 _dcomp: dcomp,
                 _target: target,
                 _visual: visual,
             })
+        }
+    }
+
+    /// Buffer size in pixels.
+    pub fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    /// Shifts the visual horizontally (pixels) so the buffer's centre stays on the window's
+    /// centre however wide the window is: content never jumps when the window resizes.
+    pub fn set_offset_x(&mut self, px: f32) {
+        if px != self.offset_x {
+            self.offset_x = px;
+            unsafe {
+                let _ = self._visual.SetOffsetX2(px);
+                let _ = self._dcomp.Commit();
+            }
         }
     }
 
