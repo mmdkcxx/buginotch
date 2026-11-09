@@ -46,6 +46,8 @@ pub struct CoverImage {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    /// Changes whenever a new image was decoded, so users can tell covers apart cheaply.
+    pub serial: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

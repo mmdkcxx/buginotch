@@ -31,6 +31,8 @@ struct Inner {
     state: Mutex<Option<MediaInfo>>,
     session: Mutex<Option<Session>>,
     subs: Mutex<Option<Subs>>,
+    /// Events arrive on thread-pool threads; refreshes must not interleave.
+    refresh_lock: Mutex<()>,
 }
 
 pub struct MediaWatcher {
@@ -48,7 +50,7 @@ impl MediaWatcher {
                 crate::log("SMTC: cannot create session manager");
                 return;
             };
-            let inner = Arc::new(Inner { manager, hwnd, state: Mutex::new(None), session: Mutex::new(None), subs: Mutex::new(None) });
+            let inner = Arc::new(Inner { manager, hwnd, state: Mutex::new(None), session: Mutex::new(None), subs: Mutex::new(None), refresh_lock: Mutex::new(()) });
             *slot2.lock().unwrap() = Some(Arc::clone(&inner));
             let a = Arc::clone(&inner);
             let _ = inner.manager.CurrentSessionChanged(&TypedEventHandler::new(move |_, _| {
@@ -142,10 +144,59 @@ fn attach(inner: &Arc<Inner>) {
 
 /// `full` re-reads title/artist/cover; otherwise only playback state and position.
 fn refresh(inner: &Arc<Inner>, full: bool) {
+    let _guard = inner.refresh_lock.lock().unwrap();
     let session = inner.session.lock().unwrap().clone();
-    let new_state = session.and_then(|s| read(&s, if full { None } else { inner.state.lock().unwrap().clone() }));
+    let prev = inner.state.lock().unwrap().clone();
+    let mut new_state = session.and_then(|s| read(&s, if full { None } else { prev.clone() }));
+    // A new title with no cover, or with the old cover, usually means the player has not
+    // published the new thumbnail yet: keep the old serial when identical and retry shortly.
+    let mut retry = None;
+    if full {
+        if let Some(n) = new_state.as_mut() {
+            let same_cover = match (&n.cover, prev.as_ref().and_then(|p| p.cover.as_ref())) {
+                (Some(a), Some(b)) if a.rgba == b.rgba => {
+                    n.cover = Some(b.clone());
+                    true
+                }
+                _ => false,
+            };
+            let title_changed = prev.as_ref().is_none_or(|p| p.title != n.title);
+            if n.cover.is_none() || (same_cover && title_changed) {
+                retry = Some(n.title.clone());
+            }
+        }
+    }
     *inner.state.lock().unwrap() = new_state;
     notify(inner);
+    if let Some(title) = retry {
+        let inner = Arc::clone(inner);
+        std::thread::spawn(move || retry_cover(&inner, &title));
+    }
+}
+
+/// Re-reads the thumbnail a few times after a track change until it differs from the old one.
+fn retry_cover(inner: &Arc<Inner>, title: &str) {
+    let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        let _guard = inner.refresh_lock.lock().unwrap();
+        let Some(session) = inner.session.lock().unwrap().clone() else { return };
+        let current = inner.state.lock().unwrap().clone();
+        let Some(current) = current.filter(|c| c.title == title) else { return };
+        let Some(props) = session.TryGetMediaPropertiesAsync().ok().and_then(|o| o.join().ok()) else { continue };
+        if props.Title().map(|h| h.to_string()).unwrap_or_default() != title {
+            return;
+        }
+        if let Some(cover) = read_cover(&props) {
+            if current.cover.as_ref().is_none_or(|c| c.rgba != cover.rgba) {
+                if let Some(state) = inner.state.lock().unwrap().as_mut() {
+                    state.cover = Some(cover);
+                }
+                notify(inner);
+                return;
+            }
+        }
+    }
 }
 
 fn read(s: &Session, previous: Option<MediaInfo>) -> Option<MediaInfo> {
@@ -188,5 +239,6 @@ fn read_cover(props: &GlobalSystemMediaTransportControlsSessionMediaProperties) 
     let mut buf = vec![0u8; size as usize];
     reader.ReadBytes(&mut buf).ok()?;
     let img = image::load_from_memory(&buf).ok()?.thumbnail(192, 192).to_rgba8();
-    Some(CoverImage { width: img.width(), height: img.height(), rgba: img.into_raw() })
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    Some(CoverImage { width: img.width(), height: img.height(), rgba: img.into_raw(), serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed) })
 }

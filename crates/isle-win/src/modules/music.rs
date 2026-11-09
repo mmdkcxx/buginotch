@@ -37,7 +37,7 @@ pub struct MusicModule {
     watcher: MediaWatcher,
     info: Option<MediaInfo>,
     cover: Option<ImageId>,
-    cover_key: Option<(String, String, usize)>,
+    cover_key: Option<u64>,
     /// Shown in the pill's left slot while a session exists.
     had_session: bool,
 }
@@ -116,7 +116,7 @@ impl Module for MusicModule {
         let had = latest.as_ref().is_some_and(|i| !i.title.is_empty() || !i.artist.is_empty());
         let changed = had != self.had_session
             || match (&self.info, &latest) {
-                (Some(a), Some(b)) => a.title != b.title || a.artist != b.artist || a.playing != b.playing || a.cover.is_some() != b.cover.is_some(),
+                (Some(a), Some(b)) => a.title != b.title || a.artist != b.artist || a.playing != b.playing || a.cover.as_ref().map(|c| c.serial) != b.cover.as_ref().map(|c| c.serial),
                 (None, None) => false,
                 _ => true,
             };
@@ -138,7 +138,7 @@ impl Module for MusicModule {
     }
     fn prepare(&mut self, c: &mut dyn Canvas) {
         let Some(info) = &self.info else { return };
-        let key = info.cover.as_ref().map(|cv| (info.title.clone(), info.artist.clone(), cv.rgba.len()));
+        let key = info.cover.as_ref().map(|cv| cv.serial);
         if key != self.cover_key {
             self.cover = info.cover.as_ref().map(|cv| c.load_image(&cv.rgba, cv.width, cv.height));
             self.cover_key = key;
