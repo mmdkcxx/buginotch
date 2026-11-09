@@ -7,6 +7,7 @@ use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
 use isle_logic::chrome::{ChromeAction, chrome_hit};
 use isle_logic::module::{Event, PillCard, PillItem, Reaction};
+use isle_logic::equaliser;
 use isle_logic::track_card::{self, CARD_H, CARD_RADIUS, CARD_W};
 use isle_logic::layout::{Hover, target};
 use isle_logic::timefmt::{format_clock, format_date};
@@ -189,7 +190,7 @@ impl App {
     }
 
     fn equaliser_running(&self) -> bool {
-        !self.open && self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }))
+        !self.open && self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { .. }))
     }
 
     /// Passes a pointer event to the current page (coordinates relative to the notch).
@@ -267,10 +268,10 @@ impl App {
                         PillItem::MiniCover(id) => {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }
-                        PillItem::Equaliser { active } => {
+                        PillItem::Equaliser { .. } => {
                             let t = epoch_ms() as f32 / 1000.0;
                             for i in 0..3 {
-                                let bar = if active { 3.0 + 9.0 * (0.5 + 0.5 * (t * 7.0 + i as f32 * 2.1).sin()) } else { 3.0 + i as f32 };
+                                let bar = 3.0 + 9.0 * equaliser::bar(t, i);
                                 c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, a));
                             }
                         }
@@ -292,7 +293,7 @@ impl App {
                     c.draw_text(&sub, l.sub, 11.0, 400, Color(139, 144, 153, ca), Align::Left);
                     let t = epoch_ms() as f32 / 1000.0;
                     for i in 0..3 {
-                        let bar = if card.playing { 3.0 + 9.0 * (0.5 + 0.5 * (t * 7.0 + i as f32 * 2.1).sin()) } else { 3.0 + i as f32 };
+                        let bar = 3.0 + 9.0 * equaliser::bar(t, i);
                         c.fill_round_rect(Rect { x: l.eq.x + i as f32 * 4.0, y: l.eq.y + l.eq.h - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ca));
                     }
                     c.fill_round_rect(l.bar, 1.5, Color(43, 47, 54, ca));

@@ -4,6 +4,7 @@
 
 pub mod canvas;
 pub mod chrome;
+pub mod equaliser;
 pub mod layout;
 pub mod lrc;
 pub mod lyrics;
