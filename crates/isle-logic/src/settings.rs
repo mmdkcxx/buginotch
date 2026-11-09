@@ -4,6 +4,14 @@
 use crate::pomodoro::PomodoroConfig;
 use serde::{Deserialize, Serialize};
 
+/// A city on the Widgets page's world clock: the name shown and the Windows time zone id
+/// (for example "Tokyo Standard Time"; `tzutil /l` lists them).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldClock {
+    pub label: String,
+    pub zone: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -18,11 +26,20 @@ pub struct Settings {
     /// After this many seconds with nothing to show, the pill's clock gives way to blinking eyes.
     /// 0 turns the eyes off.
     pub rest_after_secs: i64,
+    /// Cities for the world clock widget (the first three are shown).
+    pub world_clocks: Vec<WorldClock>,
+}
+
+fn default_clocks() -> Vec<WorldClock> {
+    [("Tokyo", "Tokyo Standard Time"), ("London", "GMT Standard Time"), ("New York", "Eastern Standard Time")]
+        .into_iter()
+        .map(|(l, z)| WorldClock { label: l.to_string(), zone: z.to_string() })
+        .collect()
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120 }
+        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120, world_clocks: default_clocks() }
     }
 }
 
@@ -51,6 +68,13 @@ mod tests {
     fn rest_after_defaults_to_two_minutes_and_can_be_set() {
         assert_eq!(Settings::default().rest_after_secs, 120);
         assert_eq!(Settings::from_toml("rest_after_secs = 0").rest_after_secs, 0);
+    }
+
+    #[test]
+    fn world_clocks_default_to_three_cities_and_can_be_replaced() {
+        assert_eq!(Settings::default().world_clocks.len(), 3);
+        let s = Settings::from_toml("[[world_clocks]]\nlabel = \"Jakarta\"\nzone = \"SE Asia Standard Time\"");
+        assert_eq!(s.world_clocks, vec![WorldClock { label: "Jakarta".into(), zone: "SE Asia Standard Time".into() }]);
     }
 
     #[test]
