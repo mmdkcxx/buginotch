@@ -4,8 +4,9 @@
 use crate::media_win::MediaWatcher;
 use crate::system::epoch_ms;
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_two_lines};
-use isle_logic::media::MediaInfo;
-use isle_logic::module::{Event, Module, PillItem, Reaction};
+use isle_logic::media::{MediaInfo, friendly_app, split_artist_album};
+use isle_logic::module::{Event, Module, PillCard, PillItem, Reaction};
+use isle_logic::track_card::{CARD_MS, is_track_change};
 use isle_logic::lyrics::{Lyrics, current_index, window};
 use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, bar_fraction, hit_for, layout_p, lyric_rows};
 use std::sync::{Arc, Mutex};
@@ -48,11 +49,13 @@ pub struct MusicModule {
     cover_key: Option<u64>,
     /// Shown in the pill's left slot while a session exists.
     had_session: bool,
+    /// The "new song" card is shown until this epoch ms.
+    card_until: i64,
 }
 
 impl MusicModule {
     pub fn new(watcher: MediaWatcher, hwnd: isize, lead_ms: i64) -> Self {
-        Self { hwnd, lead_ms, lyrics_on: false, column_anim: (0, 0.0, 0.0), lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
+        Self { hwnd, lead_ms, lyrics_on: false, column_anim: (0, 0.0, 0.0), lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false, card_until: 0 }
     }
 
     /// Eased 0..1 progress of the lyrics column at `now_ms`.
@@ -126,8 +129,21 @@ impl Module for MusicModule {
     fn wide_pill(&self) -> bool {
         self.had_session
     }
-    fn poll(&mut self, _now_ms: i64) -> bool {
+    fn pill_card(&self, now_ms: i64) -> Option<PillCard> {
+        let i = self.info.as_ref().filter(|_| self.had_session && now_ms < self.card_until)?;
+        let (artist, _) = split_artist_album(&i.artist, &i.album);
+        let app = friendly_app(&i.app);
+        let progress = if i.duration_ms > 0 { (i.position_at(now_ms) as f32 / i.duration_ms as f32).clamp(0.0, 1.0) } else { 0.0 };
+        Some(PillCard { title: i.title.clone(), sub: if app.is_empty() { artist } else { format!("{artist} · {app}") }, cover: self.cover, progress, playing: i.playing })
+    }
+    fn poll(&mut self, now_ms: i64) -> bool {
         let latest = self.watcher.latest();
+        let prev = self.info.as_ref().map(|i| (i.title.as_str(), i.artist.as_str()));
+        if let Some(l) = &latest {
+            if is_track_change(prev, (l.title.as_str(), l.artist.as_str())) {
+                self.card_until = now_ms + CARD_MS;
+            }
+        }
         let had = latest.as_ref().is_some_and(|i| !i.title.is_empty() || !i.artist.is_empty());
         let changed = had != self.had_session
             || match (&self.info, &latest) {
@@ -274,10 +290,14 @@ impl Module for MusicModule {
         if now - self.column_anim.0 < COLUMN_MS + 20 {
             return Some(now + 8); // the lyrics column is sliding
         }
+        let card = (now < self.card_until).then_some(self.card_until);
         if !self.playing() {
-            return None;
+            return card;
         }
         let mut wake = now + 120;
+        if let Some(c) = card {
+            wake = wake.min(c);
+        }
         if self.lyrics_on {
             if self.lyric_anim_start.is_some_and(|s| now - s < SCROLL_MS + 20) {
                 wake = now + 8; // keep the scroll smooth

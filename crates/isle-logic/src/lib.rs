@@ -15,6 +15,7 @@ pub mod pomodoro;
 pub mod settings;
 pub mod spring;
 pub mod timer_store;
+pub mod track_card;
 pub mod timefmt;
 pub mod timer_layout;
 #[cfg(any(test, feature = "testing"))]

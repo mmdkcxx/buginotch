@@ -42,6 +42,17 @@ pub enum Reaction {
     Peek(PeekRequest),
 }
 
+/// What the closed pill shows while it is grown into a "new song" card.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PillCard {
+    pub title: String,
+    pub sub: String,
+    pub cover: Option<ImageId>,
+    /// Playback position as a fraction 0..=1.
+    pub progress: f32,
+    pub playing: bool,
+}
+
 /// One feature: what it shows in the closed pill and its page in the open panel.
 pub trait Module {
     fn id(&self) -> &'static str;
@@ -52,6 +63,10 @@ pub trait Module {
         self.pill_left().into_iter().collect()
     }
     fn pill_center(&self) -> Option<String> {
+        None
+    }
+    /// A card the pill should grow into right now, if any (a song just changed).
+    fn pill_card(&self, _now_ms: i64) -> Option<PillCard> {
         None
     }
     fn pill_priority(&self) -> u8 {
@@ -186,6 +201,10 @@ impl Registry {
         for m in &mut self.modules {
             m.prepare(c);
         }
+    }
+
+    pub fn pill_card(&self, now_ms: i64) -> Option<PillCard> {
+        self.modules.iter().find_map(|m| m.pill_card(now_ms))
     }
 
     pub fn any_wide_pill(&self) -> bool {
