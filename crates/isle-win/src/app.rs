@@ -83,7 +83,12 @@ impl App {
 
     /// Current animated shape in DIPs: width, height, bottom-corner radius.
     pub fn dims(&self) -> (f32, f32, f32) {
-        (self.w.value, self.h.value, self.r.value.max(0.0))
+        // The corner radius follows how far the notch has grown (not its own spring), so the
+        // shape rounds off in step with its size instead of looking like a box that rounds later.
+        let (_, closed_h, closed_r) = closed_dims(&self.settings, self.wide);
+        let open = target(true, self.wide, self.lyrics);
+        let p = ((self.h.value - closed_h) / (open.size.h - closed_h)).clamp(0.0, 1.0);
+        (self.w.value, self.h.value, closed_r + (open.radius - closed_r) * p)
     }
 
     /// Window size (DIPs) for the open or closed state.
