@@ -3,7 +3,10 @@
 
 mod app;
 mod d2d_canvas;
+mod modules;
 mod renderer;
+mod system;
+mod ui;
 mod window;
 
 /// Appends a line to `%TEMP%\isle-win.log` (the exe has no console).

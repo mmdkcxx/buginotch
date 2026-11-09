@@ -3,11 +3,13 @@
 //! so everything is unit-tested on Linux.
 
 pub mod canvas;
+pub mod chrome;
 pub mod layout;
 pub mod lrc;
 pub mod module;
 pub mod pomodoro;
 pub mod settings;
 pub mod spring;
+pub mod timefmt;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

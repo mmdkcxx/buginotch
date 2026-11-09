@@ -21,6 +21,7 @@ pub const WM_APP_WAKE: u32 = WM_APP + 1;
 pub const WM_APP_MEDIA: u32 = WM_APP + 2;
 pub const WM_APP_LYRICS: u32 = WM_APP + 3;
 const TIMER_ANIM: usize = 1;
+const TIMER_SECOND: usize = 2;
 /// Defined in Win32::UI::Controls, which we do not pull in just for this.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
@@ -68,6 +69,7 @@ impl Window {
             let dpi = 96.0 * scale_of(hwnd);
             let renderer = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, dpi)?;
             RENDERER.with(|r| *r.borrow_mut() = Some(renderer));
+            SetTimer(Some(hwnd), TIMER_SECOND, 1000, None);
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             draw(hwnd);
             Ok(Window { hwnd })
@@ -102,8 +104,7 @@ fn apply_window_size(hwnd: HWND) {
     }
 }
 
-/// Draws the notch shape centred at the top of the window. Only the bottom corners
-/// are rounded: the rectangle extends above the window by the radius.
+/// Draws one frame through `App::paint`.
 fn draw(hwnd: HWND) {
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
@@ -111,15 +112,14 @@ fn draw(hwnd: HWND) {
         return;
     }
     let win_w = (rc.right - rc.left) as f32 / s;
-    let Some((w, h, r)) = APP.with(|a| a.borrow().as_ref().map(|app| app.dims())) else { return };
-    let x = ((win_w - w) / 2.0).max(0.0);
-    RENDERER.with(|cell| {
-        if let Some(renderer) = cell.borrow_mut().as_mut() {
-            let _ = renderer.frame(|c| {
-                c.fill_round_rect(Rect { x, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
-                c.draw_text("Isle", Rect { x, y: 0.0, w, h: 26.0 }, 12.0, 600, Color(245, 246, 248, 255), Align::Center);
-            });
-        }
+    APP.with(|a| {
+        let mut a = a.borrow_mut();
+        let Some(app) = a.as_mut() else { return };
+        RENDERER.with(|r| {
+            if let Some(renderer) = r.borrow_mut().as_mut() {
+                let _ = renderer.frame(|c| app.paint(c, win_w));
+            }
+        });
     });
 }
 
@@ -196,8 +196,31 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             pointer(hwnd, true);
             LRESULT(0)
         }
+        WM_LBUTTONDOWN => {
+            let s = scale_of(hwnd);
+            let (px, py) = ((lparam.0 & 0xFFFF) as i16 as f32, ((lparam.0 >> 16) & 0xFFFF) as i16 as f32);
+            let mut rc = RECT::default();
+            let _ = unsafe { GetClientRect(hwnd, &mut rc) };
+            let win_w = (rc.right - rc.left) as f32 / s;
+            let redraw = APP.with(|a| {
+                a.borrow_mut().as_mut().is_some_and(|app| {
+                    let (w, _, _) = app.dims();
+                    app.click(px / s - (win_w - w) / 2.0, py / s)
+                })
+            });
+            if redraw {
+                draw(hwnd);
+            }
+            LRESULT(0)
+        }
         WM_MOUSELEAVE => {
             pointer(hwnd, false);
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == TIMER_SECOND => {
+            if APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.on_second())) {
+                draw(hwnd);
+            }
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == TIMER_ANIM => {
