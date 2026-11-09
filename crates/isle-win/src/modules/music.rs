@@ -7,7 +7,7 @@ use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text};
 use isle_logic::media::MediaInfo;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
 use isle_logic::lyrics::{Lyrics, current_index, window};
-use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, bar_fraction, hit_for, layout_for, lyric_rows};
+use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, bar_fraction, hit_for, layout_p, lyric_rows};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
@@ -27,6 +27,8 @@ type Slot = Arc<Mutex<Option<(String, Lyrics)>>>;
 pub struct MusicModule {
     hwnd: isize,
     lyrics_on: bool,
+    /// Slide of the lyrics column: (start ms, from, to), eased over `COLUMN_MS`.
+    column_anim: (i64, f32, f32),
     lyrics: LyricsState,
     /// Track the lyrics were requested for.
     lyrics_track: String,
@@ -48,7 +50,14 @@ pub struct MusicModule {
 
 impl MusicModule {
     pub fn new(watcher: MediaWatcher, hwnd: isize) -> Self {
-        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
+        Self { hwnd, lyrics_on: false, column_anim: (0, 0.0, 0.0), lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
+    }
+
+    /// Eased 0..1 progress of the lyrics column at `now_ms`.
+    fn column_p(&self, now_ms: i64) -> f32 {
+        let (start, from, to) = self.column_anim;
+        let t = ((now_ms - start) as f32 / COLUMN_MS as f32).clamp(0.0, 1.0);
+        from + (to - from) * (1.0 - (1.0 - t).powi(3))
     }
 
     fn track_key(info: &MediaInfo) -> String {
@@ -153,8 +162,8 @@ impl Module for MusicModule {
             c.draw_text("Tidak ada musik", area, 13.0, 400, DIM, Align::Center);
             return;
         };
-        let lyrics_on = self.lyrics_on;
-        let l = layout_for(area, lyrics_on);
+        let p = self.column_p(now_ms);
+        let l = layout_p(area, p);
         match self.cover {
             Some(id) => c.draw_image(id, l.cover, 14.0),
             None => c.fill_round_rect(l.cover, 14.0, Color(232, 116, 79, 255)),
@@ -174,11 +183,12 @@ impl Module for MusicModule {
         if info.duration_ms > 0 {
             c.draw_text(&fmt_time(info.duration_ms), l.total, 10.5, 400, DIM, Align::Right);
         }
-        let (btn_bg, btn_fg) = if lyrics_on { (WHITE, Color(0, 0, 0, 255)) } else { (TRACK, WHITE) };
+        let mix = |a: Color, b: Color| Color(lerp(a.0 as f32, b.0 as f32, p) as u8, lerp(a.1 as f32, b.1 as f32, p) as u8, lerp(a.2 as f32, b.2 as f32, p) as u8, 255);
+        let (btn_bg, btn_fg) = (mix(TRACK, WHITE), mix(WHITE, Color(0, 0, 0, 255)));
         c.fill_round_rect(l.lyrics_btn, 9.0, btn_bg);
         c.draw_text("Lirik", l.lyrics_btn, 11.0, 600, btn_fg, Align::Center);
-        if lyrics_on {
-            self.draw_lyrics(c, area, pos, now_ms);
+        if p > 0.01 {
+            self.draw_lyrics(c, area, pos, now_ms, p, l.total.x + l.total.w + 12.0);
         }
         c.fill_round_rect(l.bar, 2.0, TRACK);
         if info.duration_ms > 0 {
@@ -239,7 +249,9 @@ impl Module for MusicModule {
                 }
             }
             Some(MusicHit::LyricsToggle) => {
+                let from = self.column_p(now_ms);
                 self.lyrics_on = !self.lyrics_on;
+                self.column_anim = (now_ms, from, if self.lyrics_on { 1.0 } else { 0.0 });
                 self.request_lyrics();
             }
             Some(MusicHit::LyricRow(row)) => {
@@ -257,6 +269,9 @@ impl Module for MusicModule {
     /// Animates the pill's equaliser and the scrub bar while playing.
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         let now = now_ms.max(epoch_ms());
+        if now - self.column_anim.0 < COLUMN_MS + 20 {
+            return Some(now + 8); // the lyrics column is sliding
+        }
         if !self.playing() {
             return None;
         }
@@ -276,6 +291,9 @@ impl Module for MusicModule {
     }
 }
 
+/// How long the lyrics column takes to slide in or out.
+const COLUMN_MS: i64 = 320;
+
 /// How long a lyric line takes to scroll into place.
 const SCROLL_MS: i64 = 380;
 
@@ -284,9 +302,15 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 }
 
 impl MusicModule {
-    fn draw_lyrics(&mut self, c: &mut dyn Canvas, area: Rect, pos: i64, now_ms: i64) {
-        let rows = lyric_rows(area);
-        let message = |c: &mut dyn Canvas, text: &str| c.draw_text(text, rows[1], 12.0, 400, DIM, Align::Left);
+    fn draw_lyrics(&mut self, c: &mut dyn Canvas, area: Rect, pos: i64, now_ms: i64, p: f32, left_edge: f32) {
+        let mut rows = lyric_rows(area);
+        for r in rows.iter_mut() {
+            // Sits right after the player column, so it can never overlap it while the panel
+            // is still widening; the page clip reveals it as the panel grows.
+            r.x = left_edge + (1.0 - p) * 18.0;
+        }
+        let fade = |col: Color| Color(col.0, col.1, col.2, (col.3 as f32 * p) as u8);
+        let message = |c: &mut dyn Canvas, text: &str| c.draw_text(text, rows[1], 12.0, 400, fade(DIM), Align::Left);
 
         // Track the current synced line; start a scroll when it advances by exactly one.
         let idx = match &self.lyrics {
@@ -323,7 +347,7 @@ impl MusicModule {
                     lerp(DIM.0 as f32, WHITE.0 as f32, emphasis) as u8,
                     lerp(DIM.1 as f32, WHITE.1 as f32, emphasis) as u8,
                     lerp(DIM.2 as f32, WHITE.2 as f32, emphasis) as u8,
-                    (alpha * 255.0) as u8,
+                    (alpha * p * 255.0) as u8,
                 );
                 let weight = if emphasis > 0.5 { 650 } else { 400 };
                 let cy = mid + (slot - 1.0) * step;
@@ -340,7 +364,7 @@ impl MusicModule {
         };
         for (slot, line) in window(texts.len(), index).into_iter().enumerate() {
             let Some(i) = line else { continue };
-            let (size, weight, color) = if slot == 1 { (15.0, 650, WHITE) } else { (12.0, 400, DIM) };
+            let (size, weight, color) = if slot == 1 { (15.0, 650, fade(WHITE)) } else { (12.0, 400, fade(DIM)) };
             let text = fit_text(c, texts[i], size, weight, rows[slot].w);
             c.draw_text(&text, rows[slot], size, weight, color, Align::Left);
         }

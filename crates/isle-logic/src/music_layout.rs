@@ -61,6 +61,17 @@ pub fn layout_for(a: Rect, lyrics_on: bool) -> MusicLayout {
     }
 }
 
+/// Page width without lyrics and with them (the panel is 540 / 660 wide, minus the arrows).
+const PAGE_W: f32 = 452.0;
+const PAGE_W_LYRICS: f32 = 572.0;
+
+/// Layout while the lyrics column slides in or out: `p` is 0 (hidden) to 1 (shown). The player
+/// column is sized from `p` alone, not from the animating panel width, so it glides instead of jumping.
+pub fn layout_p(a: Rect, p: f32) -> MusicLayout {
+    let left_w = PAGE_W + (PAGE_W_LYRICS - LYRICS_W - LYRICS_GAP - PAGE_W) * p.clamp(0.0, 1.0);
+    layout_for(Rect { w: left_w, ..a }, false)
+}
+
 /// The three lyric rows (previous, current, next) on the right of the page.
 pub fn lyric_rows(a: Rect) -> [Rect; 3] {
     let x = a.x + a.w - LYRICS_W;
@@ -112,6 +123,15 @@ pub fn hit_for(a: Rect, lyrics_on: bool, x: f32, y: f32) -> Option<MusicHit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layout_p_matches_the_static_layouts_at_both_ends() {
+        let wide = Rect { w: 572.0, ..A };
+        assert_eq!(layout_p(A, 0.0), layout_for(A, false));
+        assert_eq!(layout_p(wide, 1.0), layout_for(wide, true));
+        let mid = layout_p(A, 0.5);
+        assert!(mid.bar.w < layout_p(A, 0.0).bar.w && mid.bar.w > layout_p(wide, 1.0).bar.w);
+    }
 
     #[test]
     fn bar_fraction_follows_x_and_clamps_outside_the_bar() {
