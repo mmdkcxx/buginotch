@@ -159,7 +159,12 @@ impl Module for TimerModule {
         if self.bar_from < 0.0 {
             self.bar_from = done;
             self.bar_to = done;
-        } else if (done - self.bar_to).abs() > 0.0005 {
+        } else if (done - self.bar_to).abs() < 0.02 {
+            // Normal countdown drift: follow directly, no animation (and no extra frames).
+            self.bar_from = done;
+            self.bar_to = done;
+        } else {
+            // A jump (start, reset, skip, phase change): glide there.
             self.bar_from = tween(self.bar_from, self.bar_to, self.bar_start, now_ms, 500.0);
             self.bar_to = done;
             self.bar_start = now_ms;
