@@ -28,7 +28,45 @@ pub fn clean_name(raw: &str) -> String {
             name = stripped.trim_end();
         }
     }
+    // "Aziz's AirPods" -> "AirPods": the owner's name only takes up room.
+    for sep in ["’s ", "'s "] {
+        if let Some(i) = name.find(sep) {
+            name = name[i + sep.len()..].trim_start();
+        }
+    }
     name.to_string()
+}
+
+/// Whether the device is an AirPods / Beats product, which broadcast their battery levels.
+pub fn is_apple_audio(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.contains("airpods") || n.contains("beats")
+}
+
+/// How long the battery icon takes to fill and the number to count up.
+pub const BATTERY_ANIM_MS: i64 = 1200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    Good,
+    Warn,
+    Low,
+}
+
+/// Colour band of a battery percentage.
+pub fn level_of(percent: u8) -> Level {
+    match percent {
+        40..=u8::MAX => Level::Good,
+        20..=39 => Level::Warn,
+        _ => Level::Low,
+    }
+}
+
+/// (number to show, fill fraction 0..=1) `elapsed_ms` after the battery appeared.
+pub fn battery_anim(percent: u8, elapsed_ms: i64) -> (u8, f32) {
+    let t = (elapsed_ms as f32 / BATTERY_ANIM_MS as f32).clamp(0.0, 1.0);
+    let k = 1.0 - (1.0 - t).powi(3);
+    ((percent as f32 * k).round() as u8, percent as f32 / 100.0 * k)
 }
 
 /// `name` cut to fit the pill, with an ellipsis when shortened.
@@ -115,6 +153,34 @@ mod tests {
         assert_eq!(clean_name("Headset (AirPods Pro Hands-Free AG Audio)"), "AirPods Pro");
         assert_eq!(clean_name("Speakers"), "Speakers");
         assert_eq!(clean_name("  Headphones (Realtek(R) Audio)  "), "Realtek(R) Audio");
+    }
+
+    #[test]
+    fn the_owner_prefix_is_dropped() {
+        assert_eq!(clean_name("Headphones (Aziz’s AirPods)"), "AirPods");
+        assert_eq!(clean_name("Headphones (Aziz's AirPods Pro Stereo)"), "AirPods Pro");
+        assert_eq!(clean_name("Headphones (Sony WH-1000XM4)"), "Sony WH-1000XM4");
+    }
+
+    #[test]
+    fn apple_audio_is_recognised_by_name() {
+        assert!(is_apple_audio("AirPods Pro") && is_apple_audio("Beats Studio Buds") && is_apple_audio("airpods"));
+        assert!(!is_apple_audio("Sony WH-1000XM4") && !is_apple_audio("soundcore R50i NC"));
+    }
+
+    #[test]
+    fn battery_levels_are_banded() {
+        assert_eq!((level_of(100), level_of(40), level_of(39), level_of(20), level_of(19), level_of(0)), (Level::Good, Level::Good, Level::Warn, Level::Warn, Level::Low, Level::Low));
+    }
+
+    #[test]
+    fn the_battery_counts_up_to_the_real_value() {
+        assert_eq!(battery_anim(82, 0), (0, 0.0));
+        assert_eq!(battery_anim(82, BATTERY_ANIM_MS), (82, 0.82));
+        assert_eq!(battery_anim(82, BATTERY_ANIM_MS * 3), (82, 0.82));
+        let (mid, fill) = battery_anim(82, BATTERY_ANIM_MS / 3);
+        assert!(mid > 20 && mid < 82 && fill > 0.2 && fill < 0.82);
+        assert_eq!(battery_anim(82, -50), (0, 0.0));
     }
 
     #[test]

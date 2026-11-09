@@ -3,10 +3,13 @@
 //! and posts the connect / disconnect events to the UI thread.
 
 use crate::window::WM_APP_MEDIA;
-use isle_logic::headphones::{Change, Endpoint, Tracker, is_personal_audio};
+use isle_logic::airpods::{APPLE_COMPANY_ID, parse_proximity};
+use isle_logic::headphones::{Change, Endpoint, Tracker, is_apple_audio, is_personal_audio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use windows::{
+    Devices::Bluetooth::Advertisement::*,
+    Storage::Streams::DataReader,
     Win32::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
         Foundation::*,
@@ -26,12 +29,14 @@ const FORM_FACTOR: PROPERTYKEY = PROPERTYKEY { fmtid: GUID::from_u128(0x1da5d803
 #[derive(Clone, Default)]
 pub struct HeadphoneWatcher {
     events: Arc<Mutex<Vec<Change>>>,
+    battery: Arc<Mutex<Option<u8>>>,
 }
 
 impl HeadphoneWatcher {
     pub fn spawn(hwnd: HWND) -> Self {
         let watcher = Self::default();
         let events = Arc::clone(&watcher.events);
+        let battery = Arc::clone(&watcher.battery);
         let hwnd = hwnd.0 as isize;
         std::thread::spawn(move || {
             let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -45,6 +50,13 @@ impl HeadphoneWatcher {
                         }
                         let changes = tracker.update(&current);
                         if !changes.is_empty() {
+                            for c in &changes {
+                                if let Change::Connected(name) = c {
+                                    if is_apple_audio(name) {
+                                        scan_battery(Arc::clone(&battery), hwnd);
+                                    }
+                                }
+                            }
                             events.lock().unwrap().extend(changes);
                             unsafe {
                                 let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_APP_MEDIA, WPARAM(0), LPARAM(0));
@@ -57,6 +69,11 @@ impl HeadphoneWatcher {
             }
         });
         watcher
+    }
+
+    /// A battery percentage found since the last call.
+    pub fn take_battery(&self) -> Option<u8> {
+        self.battery.lock().unwrap().take()
     }
 
     /// Changes since the last call.
@@ -83,4 +100,57 @@ fn list() -> windows::core::Result<Vec<Endpoint>> {
         }
         Ok(out)
     }
+}
+
+/// How long to listen for AirPods' broadcast after they connect, and the weakest signal
+/// (dBm) still counted as "ours".
+const SCAN: Duration = Duration::from_secs(12);
+const NEAR_DBM: i16 = -72;
+
+/// Listens for Apple's battery broadcast for a while; the first nearby reading is published.
+fn scan_battery(slot: Arc<Mutex<Option<u8>>>, hwnd: isize) {
+    std::thread::spawn(move || {
+        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        let Ok(watcher) = BluetoothLEAdvertisementWatcher::new() else { return };
+        let _ = watcher.SetScanningMode(BluetoothLEScanningMode::Active);
+        let published = Arc::new(Mutex::new(false));
+        let kinds: Arc<Mutex<std::collections::BTreeMap<u8, u32>>> = Arc::default();
+        let kinds2 = Arc::clone(&kinds);
+        let handler = windows::Foundation::TypedEventHandler::new(move |_, args: windows::core::Ref<BluetoothLEAdvertisementReceivedEventArgs>| {
+            let Some(args) = args.as_ref() else { return Ok(()) };
+            let rssi = args.RawSignalStrengthInDBm().unwrap_or(-127);
+            for m in args.Advertisement()?.ManufacturerData()? {
+                if m.CompanyId()? != APPLE_COMPANY_ID {
+                    continue;
+                }
+                let buf = m.Data()?;
+                let mut bytes = vec![0u8; buf.Length()? as usize];
+                DataReader::FromBuffer(&buf)?.ReadBytes(&mut bytes)?;
+                if let Some(&kind) = bytes.first() {
+                    *kinds2.lock().unwrap().entry(kind).or_default() += 1;
+                }
+                if bytes.first() != Some(&0x07) {
+                    continue;
+                }
+                let pods = parse_proximity(&bytes);
+                crate::log(&format!("airpods ble: rssi={rssi} {pods:?}"));
+                let mut done = published.lock().unwrap();
+                if let (false, true, Some(p)) = (*done, rssi >= NEAR_DBM, pods.and_then(|p| p.display_percent())) {
+                    *done = true;
+                    *slot.lock().unwrap() = Some(p);
+                    unsafe {
+                        let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_APP_MEDIA, WPARAM(0), LPARAM(0));
+                    }
+                }
+            }
+            Ok(())
+        });
+        if watcher.Received(&handler).is_err() || watcher.Start().is_err() {
+            crate::log("airpods ble: cannot start the scan");
+            return;
+        }
+        std::thread::sleep(SCAN);
+        let _ = watcher.Stop();
+        crate::log(&format!("airpods ble: scan finished, Apple messages by type: {:?}", kinds.lock().unwrap()));
+    });
 }

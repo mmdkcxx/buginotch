@@ -6,7 +6,8 @@ use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
 use isle_logic::chrome::{ChromeAction, chrome_hit};
-use isle_logic::module::{Event, PillCard, PillItem, Reaction};
+use isle_logic::headphones::{Level, battery_anim, level_of};
+use isle_logic::module::{Event, PillBattery, PillCard, PillItem, Reaction};
 use isle_logic::equaliser;
 use isle_logic::track_card::{self, CARD_H, CARD_RADIUS, CARD_W};
 use isle_logic::layout::{Hover, target};
@@ -168,7 +169,8 @@ impl App {
         let text_changed = text != self.last_pill;
         // Room for the text between the cover (left) and the equaliser (right).
         let chars = text.chars().count();
-        let text_w = if chars > 6 { chars as f32 * 7.4 + 72.0 } else { 0.0 };
+        let battery = self.registry.pill_battery(epoch_ms());
+        let text_w = if chars > 6 || battery.is_some() { chars as f32 * 7.4 + 72.0 + if battery.is_some() { 62.0 } else { 0.0 } } else { 0.0 };
         let width_changed = text_w != self.text_w;
         self.text_w = text_w;
         self.last_pill = text;
@@ -274,7 +276,10 @@ impl App {
                 let color = if accent { Color(52, 211, 153, a) } else { Color(245, 246, 248, a) };
                 let room = Rect { x: x + 30.0, y: 0.0, w: (w - 60.0).max(1.0), h: base_h };
                 let text = fit_text(c, &text, 12.0, 600, room.w);
-                c.draw_text(&text, room, 12.0, 600, color, Align::Center);
+                match self.registry.pill_battery(epoch_ms()) {
+                    Some(b) => draw_text_with_battery(c, &text, room, base_h, color, a, b, epoch_ms()),
+                    None => c.draw_text(&text, room, 12.0, 600, color, Align::Center),
+                }
                 let alpha = a as f32 / 255.0;
                 // Left: album art. Right: equaliser. Middle: the text above.
                 for item in self.registry.pill_items() {
@@ -404,4 +409,34 @@ impl App {
 fn closed_dims(settings: &Settings, wide: bool) -> (f32, f32, f32) {
     let w = if wide { settings.pill_width + 44.0 } else { settings.pill_width };
     (w, settings.pill_height, 13.0)
+}
+
+/// Centre text followed by a neat battery icon and a percentage that counts up as the icon fills.
+#[allow(clippy::too_many_arguments)]
+fn draw_text_with_battery(c: &mut dyn Canvas, text: &str, room: Rect, pill_h: f32, text_color: Color, alpha: u8, b: PillBattery, now: i64) {
+    let (shown, fill) = battery_anim(b.percent, now - b.since_ms);
+    let tint = match level_of(b.percent) {
+        Level::Good => (52, 211, 153),
+        Level::Warn => (245, 196, 81),
+        Level::Low => (255, 107, 107),
+    };
+    let tint = Color(tint.0, tint.1, tint.2, alpha);
+    let final_label = format!("{}%", b.percent);
+    let (tw, pw) = (c.measure_text(text, 12.0, 600).ceil(), c.measure_text(&final_label, 12.0, 600).ceil());
+    const ICON_W: f32 = 20.0;
+    const NUB: f32 = 2.0;
+    let group = tw + 7.0 + ICON_W + NUB + 6.0 + pw;
+    let gx = (room.x + (room.w - group) / 2.0).max(room.x).round();
+    let iy = ((pill_h - 10.0) / 2.0).round();
+    c.draw_text(text, Rect { x: gx, y: 0.0, w: tw + 2.0, h: pill_h }, 12.0, 600, text_color, Align::Left);
+    let ix = gx + tw + 7.0;
+    // Body: a tinted outline around a black cavity, then the fill, then the terminal nub.
+    c.fill_round_rect(Rect { x: ix, y: iy, w: ICON_W, h: 10.0 }, 2.6, tint);
+    c.fill_round_rect(Rect { x: ix + 1.3, y: iy + 1.3, w: ICON_W - 2.6, h: 7.4 }, 1.5, Color(0, 0, 0, 255));
+    if fill > 0.0 {
+        let inner = ICON_W - 4.8;
+        c.fill_round_rect(Rect { x: ix + 2.4, y: iy + 2.4, w: (inner * fill).max(1.2), h: 5.2 }, 1.0, tint);
+    }
+    c.fill_round_rect(Rect { x: ix + ICON_W + 0.6, y: iy + 3.0, w: NUB, h: 4.0 }, 1.0, tint);
+    c.draw_text(&format!("{shown}%"), Rect { x: ix + ICON_W + NUB + 6.0, y: 0.0, w: pw + 4.0, h: pill_h }, 12.0, 600, tint, Align::Left);
 }

@@ -53,6 +53,13 @@ pub struct PillCard {
     pub playing: bool,
 }
 
+/// A battery readout shown next to the pill's centre text, animating in from `since_ms`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PillBattery {
+    pub percent: u8,
+    pub since_ms: i64,
+}
+
 /// One feature: what it shows in the closed pill and its page in the open panel.
 pub trait Module {
     fn id(&self) -> &'static str;
@@ -67,6 +74,10 @@ pub trait Module {
     }
     /// A card the pill should grow into right now, if any (a song just changed).
     fn pill_card(&self, _now_ms: i64) -> Option<PillCard> {
+        None
+    }
+    /// A battery icon and percentage to show after the centre text.
+    fn pill_battery(&self, _now_ms: i64) -> Option<PillBattery> {
         None
     }
     fn pill_priority(&self) -> u8 {
@@ -205,6 +216,10 @@ impl Registry {
 
     pub fn pill_card(&self, now_ms: i64) -> Option<PillCard> {
         self.modules.iter().find_map(|m| m.pill_card(now_ms))
+    }
+
+    pub fn pill_battery(&self, now_ms: i64) -> Option<PillBattery> {
+        self.modules.iter().find_map(|m| m.pill_battery(now_ms))
     }
 
     pub fn any_wide_pill(&self) -> bool {

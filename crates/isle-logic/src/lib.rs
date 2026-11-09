@@ -2,6 +2,7 @@
 //! Platform-independent logic for Isle for Windows. Nothing here touches Windows APIs,
 //! so everything is unit-tested on Linux.
 
+pub mod airpods;
 pub mod canvas;
 pub mod chrome;
 pub mod equaliser;
