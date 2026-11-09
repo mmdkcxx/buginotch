@@ -4,7 +4,8 @@
 
 use crate::notif_win;
 use crate::system::{epoch_ms, local_time};
-use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text, wrap_lines};
+use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_lines};
+use std::collections::HashMap;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
 use isle_logic::notifs::{Feed, Notif, letter, snippet, tile_color};
 use isle_logic::peek::Peek;
@@ -22,12 +23,14 @@ const PILL_CHARS: usize = 38;
 pub struct NotificationsModule {
     feed: Feed,
     peek: Peek,
+    /// Uploaded logos by app name (`None`: this app has no readable logo, so it keeps a letter tile).
+    icons: HashMap<String, Option<ImageId>>,
 }
 
 impl NotificationsModule {
     pub fn new() -> Self {
         notif_win::spawn();
-        Self { feed: Feed::default(), peek: Peek::default() }
+        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new() }
     }
 }
 
@@ -40,7 +43,12 @@ fn clock_of(at_ms: i64, now_ms: i64) -> String {
     format_clock((m / 60) as u32, (m % 60) as u32)
 }
 
-fn tile(c: &mut dyn Canvas, r: Rect, app: &str, size: f32) {
+fn tile(c: &mut dyn Canvas, r: Rect, app: &str, size: f32, logo: Option<ImageId>) {
+    if let Some(id) = logo {
+        c.fill_round_rect(r, r.w * 0.27, Color(43, 47, 54, 255));
+        c.draw_image(id, r, r.w * 0.27);
+        return;
+    }
     let (cr, cg, cb) = tile_color(app);
     c.fill_round_rect(r, r.w * 0.27, Color(cr, cg, cb, 255));
     c.draw_text(&letter(app).to_string(), Rect { y: r.y + (r.h - size - 4.0) / 2.0, h: size + 4.0, ..r }, size, 700, WHITE, Align::Center);
@@ -89,6 +97,15 @@ impl Module for NotificationsModule {
     }
 
     fn draw_panel(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64) {
+        // Upload any logo the worker has found since the last draw.
+        for n in self.feed.items().iter().take(4) {
+            if self.icons.get(&n.app).is_none_or(|i| i.is_none()) {
+                if let Some(ic) = notif_win::icon(&n.app) {
+                    self.icons.insert(n.app.clone(), Some(c.load_image(&ic.rgba, ic.w, ic.h)));
+                }
+            }
+        }
+        let logo = |app: &str| self.icons.get(app).copied().flatten();
         let items = self.feed.items();
         let Some(first) = items.first() else {
             c.fill_round_rect(area, 13.0, CARD);
@@ -98,7 +115,7 @@ impl Module for NotificationsModule {
         let main_w = (area.w - GAP) * 0.6;
         let main = Rect { w: main_w, ..area };
         c.fill_round_rect(main, 13.0, CARD);
-        tile(c, Rect { x: main.x + 13.0, y: main.y + 11.0, w: 28.0, h: 28.0 }, &first.app, 13.0);
+        tile(c, Rect { x: main.x + 13.0, y: main.y + 11.0, w: 28.0, h: 28.0 }, &first.app, 13.0, logo(&first.app));
         let tx = main.x + 50.0;
         let tw = main.w - 63.0;
         let title = fit_text(c, if first.title.is_empty() { &first.app } else { &first.title }, 13.0, 650, tw);
@@ -116,7 +133,7 @@ impl Module for NotificationsModule {
         for (i, n) in items.iter().skip(1).take(3).enumerate() {
             let r = Rect { x: side_x, y: area.y + i as f32 * (row_h + SMALL_GAP), w: side_w, h: row_h };
             c.fill_round_rect(r, 11.0, CARD);
-            tile(c, Rect { x: r.x + 9.0, y: r.y + (row_h - 20.0) / 2.0, w: 20.0, h: 20.0 }, &n.app, 10.0);
+            tile(c, Rect { x: r.x + 9.0, y: r.y + (row_h - 20.0) / 2.0, w: 20.0, h: 20.0 }, &n.app, 10.0, logo(&n.app));
             let label = side_label(n);
             let text = fit_text(c, &label, 12.0, 600, r.w - 46.0);
             c.draw_text(&text, Rect { x: r.x + 37.0, y: r.y + (row_h - 18.0) / 2.0, w: r.w - 46.0, h: 18.0 }, 12.0, 600, WHITE, Align::Left);
