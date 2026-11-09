@@ -8,6 +8,7 @@ mod input_win;
 mod shell_win;
 mod lrclib;
 mod media_win;
+mod notif_win;
 mod modules;
 mod power;
 mod renderer;

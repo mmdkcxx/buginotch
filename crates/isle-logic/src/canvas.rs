@@ -93,6 +93,35 @@ pub fn wrap_two_lines(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, ma
     vec![a.to_string(), fit_text(c, b, size, weight, max_w)]
 }
 
+/// Splits `text` into at most `max_lines` lines that fit `max_w`, breaking at spaces (or inside a
+/// word when there is none). The last line is ellipsised when text is left over.
+pub fn wrap_lines(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, max_w: f32, max_lines: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text.trim().to_string();
+    while !rest.is_empty() && max_lines > 0 {
+        if out.len() + 1 == max_lines || c.measure_text(&rest, size, weight) <= max_w {
+            out.push(fit_text(c, &rest, size, weight, max_w));
+            break;
+        }
+        let mut fit = 0; // byte offset of the longest prefix that fits
+        for (i, _) in rest.char_indices().skip(1) {
+            if c.measure_text(&rest[..i], size, weight) <= max_w {
+                fit = i;
+            } else {
+                break;
+            }
+        }
+        if fit == 0 {
+            out.push(fit_text(c, &rest, size, weight, max_w));
+            break;
+        }
+        let split = rest[..fit].rfind(' ').filter(|&i| i > 0).unwrap_or(fit);
+        out.push(rest[..split].trim_end().to_string());
+        rest = rest[split..].trim_start().to_string();
+    }
+    out
+}
+
 #[cfg(test)]
 mod fit_tests {
     use super::*;
@@ -141,5 +170,17 @@ mod fit_tests {
         let out = wrap_two_lines(&mut c, "日本語のタイトルです", 12.0, 400, 35.0);
         assert_eq!(out.len(), 2);
         assert!(!out[0].is_empty());
+    }
+
+    #[test]
+    fn wrap_lines_fills_lines_and_ellipsises_the_last() {
+        let mut c = crate::testing::RecordingCanvas::default(); // 7 px per char: 10 chars in 70 px
+        let text = "aaaa bbbb cccc dddd eeee ffff";
+        assert_eq!(wrap_lines(&mut c, text, 12.0, 400, 70.0, 3), vec!["aaaa bbbb", "cccc dddd", "eeee ffff"]);
+        let two = wrap_lines(&mut c, text, 12.0, 400, 70.0, 2);
+        assert_eq!(two[0], "aaaa bbbb");
+        assert!(two.len() == 2 && two[1].ends_with('…'));
+        assert!(wrap_lines(&mut c, "", 12.0, 400, 70.0, 3).is_empty());
+        assert_eq!(wrap_lines(&mut c, "short", 12.0, 400, 70.0, 3), vec!["short"]);
     }
 }
