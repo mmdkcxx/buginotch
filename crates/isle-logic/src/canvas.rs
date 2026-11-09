@@ -46,7 +46,7 @@ pub fn fit_text(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, max_w: f
         return text.to_string();
     }
     let cuts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
-    let (mut lo, mut hi) = (0usize, cuts.len());
+    let (mut lo, mut hi) = (0usize, cuts.len() - 1); // the whole text is known not to fit
     // Largest k (chars kept) with width(prefix + "…") <= max_w; k = 0 means just "…".
     while lo < hi {
         let mid = (lo + hi).div_ceil(2);
@@ -58,4 +58,31 @@ pub fn fit_text(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, max_w: f
         }
     }
     format!("{}…", &text[..cuts[lo]])
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+
+    #[test]
+    fn fit_text_does_not_panic_when_last_char_is_wider_than_ellipsis() {
+        struct W;
+        impl Canvas for W {
+            fn fill_round_rect(&mut self, _: Rect, _: f32, _: Color) {}
+            fn fill_polygon(&mut self, _: &[(f32, f32)], _: Color) {}
+            fn fill_circle(&mut self, _: f32, _: f32, _: f32, _: Color) {}
+            fn stroke_arc(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32, _: Color) {}
+            fn draw_text(&mut self, _: &str, _: Rect, _: f32, _: u16, _: Color, _: Align) {}
+            fn measure_text(&mut self, t: &str, _: f32, _: u16) -> f32 {
+                t.chars().map(|c| if c == '…' { 10.0 } else { 14.0 }).sum()
+            }
+            fn load_image(&mut self, _: &[u8], _: u32, _: u32) -> ImageId { ImageId(0) }
+            fn draw_image(&mut self, _: ImageId, _: Rect, _: f32) {}
+            fn push_clip(&mut self, _: Rect, _: f32) {}
+            fn pop_clip(&mut self) {}
+        }
+        // Full text is 42 wide; "日本…" is 38, so max 40 fits the prefix but not the whole text.
+        assert_eq!(fit_text(&mut W, "日本語", 14.0, 400, 40.0), "日本…");
+    }
 }

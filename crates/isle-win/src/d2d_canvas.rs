@@ -177,7 +177,10 @@ impl Canvas for D2dCanvas<'_> {
         self.next_image.set(id.0 + 1);
         unsafe {
             if let Ok(bitmap) = self.ctx.CreateBitmap(D2D_SIZE_U { width: w, height: h }, Some(bgra.as_ptr() as *const _), w * 4, &props) {
-                self.images.borrow_mut().insert(id, bitmap);
+                let mut images = self.images.borrow_mut();
+                images.insert(id, bitmap);
+                // Only the newest few covers are ever drawn; free the rest.
+                images.retain(|k, _| k.0 + 4 > id.0);
             }
         }
         id

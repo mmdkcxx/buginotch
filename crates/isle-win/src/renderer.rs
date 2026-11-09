@@ -126,7 +126,7 @@ impl Renderer {
             let end = self.d2d_ctx.EndDraw(None, None);
             self.d2d_ctx.SetTarget(None);
             end?;
-            let _ = self.swap.Present(1, DXGI_PRESENT(0));
+            self.swap.Present(1, DXGI_PRESENT(0)).ok()?;
         }
         Ok(())
     }

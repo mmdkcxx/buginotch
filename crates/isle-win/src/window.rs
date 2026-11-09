@@ -125,15 +125,27 @@ fn draw(hwnd: HWND) {
         return;
     }
     let win_w = (rc.right - rc.left) as f32 / s;
+    let mut lost = false;
     APP.with(|a| {
         let mut a = a.borrow_mut();
         let Some(app) = a.as_mut() else { return };
         RENDERER.with(|r| {
             if let Some(renderer) = r.borrow_mut().as_mut() {
-                let _ = renderer.frame(|c| app.paint(c, win_w));
+                if let Err(e) = renderer.frame(|c| app.paint(c, win_w)) {
+                    // D2DERR_RECREATE_TARGET, DXGI_ERROR_DEVICE_REMOVED / _RESET: rebuild.
+                    if matches!(e.code().0 as u32, 0x8899000C | 0x887A0005 | 0x887A0007) {
+                        lost = true;
+                    }
+                }
             }
         });
     });
+    if lost {
+        crate::log("graphics device lost; rebuilding renderer");
+        if let Ok(r) = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * s) {
+            RENDERER.with(|c| *c.borrow_mut() = Some(r));
+        }
+    }
 }
 
 /// Records the registry's autostart state in settings.toml.
