@@ -6,6 +6,7 @@ use crate::system::{data_path, epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
 use isle_logic::module::{EditKey, Event, Module, PillItem, Reaction};
 use isle_logic::text_edit::TextEdit;
+use isle_logic::peek::Peek;
 use isle_logic::todo::{TodoList, day_number, from_json, to_json};
 use isle_logic::todo_layout::{DELETE_W, TodoHit, ROW_GAP, ROW_H, hit, layout, max_scroll, row_rect};
 use std::cell::Cell;
@@ -23,6 +24,7 @@ const FIELD_BORDER: Color = Color(58, 63, 72, 255);
 const DONE_TEXT: Color = Color(185, 196, 189, 255);
 const RED: Color = Color(255, 122, 122, 255);
 const BLINK_MS: i64 = 530;
+const REMIND_SHOW_MS: i64 = 7000;
 const CHECK_MS: f32 = 220.0;
 
 pub struct TodoModule {
@@ -41,6 +43,8 @@ pub struct TodoModule {
     caret: Cell<Option<(f32, f32)>>,
     day: i32,
     anim_until: i64,
+    /// A due reminder shown in the closed pill.
+    peek: Peek,
     /// Average char width of the text box, from the last draw (for mapping clicks).
     last_avg: Cell<f32>,
 }
@@ -57,7 +61,7 @@ impl TodoModule {
         if list.prune(day) {
             save(&list);
         }
-        Self { list, adding: false, editing: false, field: TextEdit::new(isle_logic::todo::MAX_TASK_CHARS), hscroll: 0.0, scroll: 0.0, dragging_field: false, blink_from: 0, ticks: HashMap::new(), caret: Cell::new(None), day, anim_until: 0, last_avg: Cell::new(7.0) }
+        Self { list, adding: false, editing: false, field: TextEdit::new(isle_logic::todo::MAX_TASK_CHARS), hscroll: 0.0, scroll: 0.0, dragging_field: false, blink_from: 0, ticks: HashMap::new(), caret: Cell::new(None), day, anim_until: 0, peek: Peek::default(), last_avg: Cell::new(7.0) }
     }
 
     fn save(&self) {
@@ -131,7 +135,26 @@ impl Module for TodoModule {
     fn text_caret(&self) -> Option<(f32, f32)> {
         self.caret.get()
     }
-    fn poll(&mut self, _now_ms: i64) -> bool {
+    fn pill_center(&self) -> Option<String> {
+        self.peek.current(epoch_ms()).map(str::to_string)
+    }
+    fn pill_priority(&self) -> u8 {
+        30
+    }
+    fn wide_pill(&self) -> bool {
+        self.peek.current(epoch_ms()).is_some()
+    }
+    fn poll(&mut self, now_ms: i64) -> bool {
+        let t = local_time();
+        let minute = (t.hour * 60 + t.minute) as u16;
+        let before = self.peek.current(now_ms).is_some();
+        let hit = self.list.due_now(self.day, minute).map(|t| (t.id, t.text.clone()));
+        if let Some((id, text)) = hit {
+            self.list.mark_reminded(id, self.day);
+            self.save();
+            self.peek.show(format!("⏰ {text}"), now_ms, REMIND_SHOW_MS);
+        }
+        let reminded = self.peek.current(now_ms).is_some() != before;
         let d = today();
         if d != self.day {
             self.day = d;
@@ -140,7 +163,7 @@ impl Module for TodoModule {
                 return true;
             }
         }
-        false
+        reminded
     }
 
     fn draw_panel(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64) {
@@ -180,7 +203,13 @@ impl Module for TodoModule {
                 thick_line(c, (cx - 3.6, cy + 0.2), (cx - 1.0, cy + 2.8), 1.8, ink);
                 thick_line(c, (cx - 1.0, cy + 2.8), (cx + 3.8, cy - 2.6), 1.8, ink);
             }
-            let right_pad = if self.editing { DELETE_W } else { 12.0 };
+            let due = task.due.map(|m| format!("{:02}:{:02}", m / 60, m % 60));
+            let due_w = if due.is_some() { 44.0 } else { 0.0 };
+            let right_pad = if self.editing { DELETE_W } else { 12.0 } + due_w;
+            if let Some(d) = &due {
+                let slot = Rect { x: r.x + r.w - right_pad, y: r.y, w: due_w, h: r.h };
+                c.draw_text(d, slot, 11.5, 500, if k > 0.5 { DIM } else { GREEN }, Align::Right);
+            }
             let text_box = Rect { x: r.x + 36.0, y: r.y, w: r.w - 36.0 - right_pad, h: r.h };
             let shown = fit_text(c, &task.text, 12.5, 400, text_box.w);
             let col = mix(WHITE, DONE_TEXT, k);
@@ -312,7 +341,11 @@ impl Module for TodoModule {
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         let blink = self.adding.then(|| now_ms + BLINK_MS - (now_ms - self.blink_from).rem_euclid(BLINK_MS));
         let anim = (now_ms < self.anim_until).then_some(now_ms + 16);
-        [blink, anim].into_iter().flatten().min()
+        // Look again at the start of each minute while a reminder is waiting.
+        let waiting = self.list.tasks().iter().any(|t| !t.done && t.due.is_some());
+        let minute = waiting.then(|| now_ms + 60_000 - now_ms.rem_euclid(60_000) + 200);
+        let shown = self.peek.next_wake_ms().filter(|&t| t > now_ms);
+        [blink, anim, minute, shown].into_iter().flatten().min()
     }
 }
 
@@ -330,7 +363,7 @@ impl TodoModule {
         let inner = Rect { x: field.x + 10.0, y: field.y, w: field.w - 20.0, h: field.h };
         let shown = self.field.display_text();
         if shown.is_empty() {
-            c.draw_text("Tugas baru, lalu Enter", inner, 12.5, 400, DIM, Align::Left);
+            c.draw_text("Tugas baru, atau 14:30 Rapat", inner, 12.5, 400, DIM, Align::Left);
         }
         let prefix_w = c.measure_text(&self.field.caret_prefix(), 12.5, 400);
         if !shown.is_empty() {
