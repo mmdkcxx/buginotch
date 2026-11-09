@@ -3,7 +3,7 @@
 
 use crate::media_win::MediaWatcher;
 use crate::system::epoch_ms;
-use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text};
+use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_two_lines};
 use isle_logic::media::MediaInfo;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
 use isle_logic::lyrics::{Lyrics, current_index, window};
@@ -333,7 +333,7 @@ impl MusicModule {
         };
         if let (Lyrics::Synced(lines), Some(i)) = (lyrics, idx) {
             // Line j sits at slot (j - i + 1) + (1 - t): slot 1 is the big middle row.
-            let (mid, step) = (rows[1].y + rows[1].h / 2.0, 32.0);
+            let (mid, step) = (rows[1].y + rows[1].h / 2.0, 36.0);
             for j in i.saturating_sub(2)..=(i + 1).min(lines.len() - 1) {
                 let slot = (j as f32 - i as f32 + 1.0) + (1.0 - t);
                 let dist = (slot - 1.0).abs();
@@ -352,8 +352,13 @@ impl MusicModule {
                 let weight = if emphasis > 0.5 { 650 } else { 400 };
                 let cy = mid + (slot - 1.0) * step;
                 let r = Rect { x: rows[1].x, y: cy - 14.0, w: rows[1].w, h: 28.0 };
-                let text = fit_text(c, &lines[j].text, size, weight, r.w);
-                c.draw_text(&text, r, size, weight, col, Align::Left);
+                // Long lines wrap onto a second line (ellipsis only if even that is too long).
+                let parts = wrap_two_lines(c, &lines[j].text, size, weight, r.w);
+                let lh = size * 1.3;
+                let top = cy - lh * parts.len() as f32 / 2.0;
+                for (k, part) in parts.iter().enumerate() {
+                    c.draw_text(part, Rect { x: r.x, y: top + lh * k as f32, w: r.w, h: lh }, size, weight, col, Align::Left);
+                }
             }
             return;
         }
