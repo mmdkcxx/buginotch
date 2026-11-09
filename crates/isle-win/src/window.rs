@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The borderless, top-most, never-activated notch window.
 
+use crate::renderer::Renderer;
+use isle_logic::canvas::{Align, Color, Rect};
 use isle_logic::layout::{notch_x, target};
+use std::cell::RefCell;
 use windows::{
     Win32::{
         Foundation::*,
@@ -15,6 +18,10 @@ use windows::{
 pub const WM_APP_WAKE: u32 = WM_APP + 1;
 pub const WM_APP_MEDIA: u32 = WM_APP + 2;
 pub const WM_APP_LYRICS: u32 = WM_APP + 3;
+
+thread_local! {
+    static RENDERER: RefCell<Option<Renderer>> = const { RefCell::new(None) };
+}
 
 pub struct Window {
     hwnd: HWND,
@@ -31,12 +38,11 @@ impl Window {
                 hInstance: instance.into(),
                 lpszClassName: class,
                 hCursor: LoadCursorW(None, IDC_ARROW)?,
-                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
                 ..Default::default()
             };
             RegisterClassW(&wc);
             let hwnd = CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
                 class,
                 w!("Isle"),
                 WS_POPUP,
@@ -53,7 +59,12 @@ impl Window {
             let t = target(false, false, false).size;
             let scale = scale_of(hwnd);
             window.set_size_and_pos((t.w * scale).round() as i32, (t.h * scale).round() as i32);
+            let mut rc = RECT::default();
+            GetClientRect(hwnd, &mut rc)?;
+            let renderer = Renderer::new(hwnd, (rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * scale)?;
+            RENDERER.with(|r| *r.borrow_mut() = Some(renderer));
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            draw(hwnd);
             Ok(window)
         }
     }
@@ -93,8 +104,56 @@ fn reposition_closed(hwnd: HWND) {
     place(hwnd, (t.w * s).round() as i32, (t.h * s).round() as i32);
 }
 
+/// Draws the notch shape. Only the bottom corners are rounded: the rectangle extends
+/// above the window by the radius, so the top corners are cut off.
+fn draw(hwnd: HWND) {
+    let s = scale_of(hwnd);
+    let mut rc = RECT::default();
+    if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
+        return;
+    }
+    let (w, h) = ((rc.right - rc.left) as f32 / s, (rc.bottom - rc.top) as f32 / s);
+    let r = target(false, false, false).radius;
+    RENDERER.with(|cell| {
+        if let Some(renderer) = cell.borrow_mut().as_mut() {
+            let _ = renderer.frame(|c| {
+                c.fill_round_rect(Rect { x: 0.0, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
+                c.draw_text("Isle", Rect { x: 0.0, y: 0.0, w, h }, 12.0, 600, Color(245, 246, 248, 255), Align::Center);
+            });
+        }
+    });
+}
+
+fn resize_renderer(hwnd: HWND) {
+    let s = scale_of(hwnd);
+    let mut rc = RECT::default();
+    if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
+        return;
+    }
+    RENDERER.with(|cell| {
+        if let Some(renderer) = cell.borrow_mut().as_mut() {
+            let _ = renderer.resize((rc.right - rc.left) as u32, (rc.bottom - rc.top) as u32, 96.0 * s);
+        }
+    });
+}
+
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
+        WM_ERASEBKGND => LRESULT(1),
+        WM_SIZE => {
+            resize_renderer(hwnd);
+            draw(hwnd);
+            LRESULT(0)
+        }
+        WM_PAINT => {
+            unsafe {
+                let mut ps = PAINTSTRUCT::default();
+                let _ = BeginPaint(hwnd, &mut ps);
+                let _ = EndPaint(hwnd, &ps);
+            }
+            draw(hwnd);
+            LRESULT(0)
+        }
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_DPICHANGED | WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
             reposition_closed(hwnd);

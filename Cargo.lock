@@ -39,6 +39,7 @@ version = "0.1.0"
 dependencies = [
  "isle-logic",
  "windows",
+ "windows-numerics",
 ]
 
 [[package]]
