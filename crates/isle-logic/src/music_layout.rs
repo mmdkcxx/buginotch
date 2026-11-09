@@ -43,18 +43,18 @@ pub fn layout(a: Rect) -> MusicLayout {
 /// The player's layout; with `lyrics_on` it gives up the right 212 px to the lyrics.
 pub fn layout_for(a: Rect, lyrics_on: bool) -> MusicLayout {
     let left_w = if lyrics_on { a.w - LYRICS_W - LYRICS_GAP } else { a.w };
-    let col_x = a.x + 96.0;
-    let col_w = left_w - 96.0;
+    let col_x = a.x + 112.0;
+    let col_w = left_w - 112.0;
     let cx = col_x + col_w / 2.0;
-    let yc = a.y + 69.0;
+    let yc = a.y + 92.0;
     MusicLayout {
-        cover: Rect { x: a.x, y: a.y + 3.0, w: 80.0, h: 80.0 },
-        title: Rect { x: col_x, y: a.y, w: col_w - 52.0, h: 18.0 },
-        lyrics_btn: Rect { x: col_x + col_w - 46.0, y: a.y, w: 46.0, h: 18.0 },
-        artist: Rect { x: col_x, y: a.y + 18.0, w: col_w - 52.0, h: 16.0 },
-        elapsed: Rect { x: col_x, y: a.y + 36.0, w: 36.0, h: 14.0 },
-        bar: Rect { x: col_x + 40.0, y: a.y + 41.0, w: col_w - 80.0, h: 4.0 },
-        total: Rect { x: col_x + col_w - 36.0, y: a.y + 36.0, w: 36.0, h: 14.0 },
+        cover: Rect { x: a.x, y: a.y + 6.0, w: 96.0, h: 96.0 },
+        title: Rect { x: col_x, y: a.y + 4.0, w: col_w - 52.0, h: 18.0 },
+        lyrics_btn: Rect { x: col_x + col_w - 46.0, y: a.y + 4.0, w: 46.0, h: 18.0 },
+        artist: Rect { x: col_x, y: a.y + 23.0, w: col_w - 52.0, h: 16.0 },
+        elapsed: Rect { x: col_x, y: a.y + 49.0, w: 36.0, h: 14.0 },
+        bar: Rect { x: col_x + 40.0, y: a.y + 54.0, w: col_w - 80.0, h: 4.0 },
+        total: Rect { x: col_x + col_w - 36.0, y: a.y + 49.0, w: 36.0, h: 14.0 },
         prev: (cx - 56.0, yc),
         play: (cx, yc),
         next: (cx + 56.0, yc),
@@ -65,9 +65,9 @@ pub fn layout_for(a: Rect, lyrics_on: bool) -> MusicLayout {
 pub fn lyric_rows(a: Rect) -> [Rect; 3] {
     let x = a.x + a.w - LYRICS_W;
     [
-        Rect { x, y: a.y, w: LYRICS_W, h: 24.0 },
-        Rect { x, y: a.y + 28.0, w: LYRICS_W, h: 28.0 },
-        Rect { x, y: a.y + 60.0, w: LYRICS_W, h: 24.0 },
+        Rect { x, y: a.y + 14.0, w: LYRICS_W, h: 24.0 },
+        Rect { x, y: a.y + 44.0, w: LYRICS_W, h: 28.0 },
+        Rect { x, y: a.y + 78.0, w: LYRICS_W, h: 24.0 },
     ]
 }
 
