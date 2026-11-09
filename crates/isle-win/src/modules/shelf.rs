@@ -8,7 +8,7 @@ use crate::system::data_path;
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text};
 use isle_logic::module::{Event, Module, Reaction};
 use isle_logic::shelf::{Shelf, extension, file_name};
-use isle_logic::shelf_layout::{ShelfHit, TILE_W, hit, layout, max_scroll, remove_rect, tile_rect};
+use isle_logic::shelf_layout::{ShelfHit, TILE_GAP, TILE_W, hit, layout, max_scroll, remove_rect, tile_rect};
 use std::collections::HashMap;
 
 const WHITE: Color = Color(245, 246, 248, 255);
@@ -20,6 +20,20 @@ const AMBER: Color = Color(251, 191, 36, 255);
 const BADGE: Color = Color(43, 47, 54, 255);
 const ENTER_MS: f32 = 320.0;
 const COPIED_MS: i64 = 1000;
+/// How long a removed tile takes to shrink away.
+const LEAVE_MS: f32 = 260.0;
+
+fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
+/// A tile on its way out: it keeps its old slot while it fades.
+struct Leaving {
+    path: String,
+    id: u64,
+    index: usize,
+    t0: i64,
+}
 /// Pointer travel before a press becomes a drag out.
 const DRAG_PX: f32 = 6.0;
 
@@ -50,6 +64,7 @@ pub struct ShelfModule {
     /// The tile last copied and when.
     copied: Option<(u64, i64)>,
     anim_until: i64,
+    leaving: Vec<Leaving>,
 }
 
 impl ShelfModule {
@@ -72,6 +87,7 @@ impl ShelfModule {
             arrived: HashMap::new(),
             copied: None,
             anim_until: 0,
+            leaving: Vec::new(),
         }
     }
 
@@ -81,6 +97,51 @@ impl ShelfModule {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(path, serde_json::to_string(&self.shelf.paths()).unwrap_or_default());
+    }
+}
+
+impl ShelfModule {
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tile(&self, c: &mut dyn Canvas, r: Rect, path: &str, id: u64, enter: f32, with_remove: bool, now_ms: i64) {
+        let mut r = r;
+        r.y -= 14.0 * (1.0 - enter).min(1.0) * f32::from(with_remove);
+            let a = (enter * 255.0) as u8;
+            let fade = |col: Color| Color(col.0, col.1, col.2, ((col.3 as f32) * enter) as u8);
+            let k = match self.copied {
+                Some((id, t0)) if id == id => {
+                    let ms = (now_ms - t0) as f32;
+                    (ms / 120.0).min((COPIED_MS as f32 - ms) / 280.0).clamp(0.0, 1.0)
+                }
+                _ => 0.0,
+            };
+            let mixc = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * k).round() as u8;
+            c.fill_round_rect(r, 12.0, Color(mixc(ROW.0, FLASH.0), mixc(ROW.1, FLASH.1), mixc(ROW.2, FLASH.2), a));
+            let icon = Rect { x: r.x + (r.w - 46.0) / 2.0, y: r.y + 10.0, w: 46.0, h: 46.0 };
+            match self.thumbs.get(path) {
+                Some(Thumb::Ready(id)) => c.draw_image_alpha(*id, icon, 8.0, enter),
+                _ => {
+                    c.fill_round_rect(icon, 10.0, fade(BADGE));
+                    c.draw_text(&extension(path), icon, 11.5, 700, fade(DIM), Align::Center);
+                }
+            }
+            let name = file_name(path);
+            let name_box = Rect { x: r.x + 6.0, y: r.y + 62.0, w: r.w - 12.0, h: 16.0 };
+            let shown = fit_text(c, name, 11.5, 500, name_box.w);
+            c.draw_text(&shown, Rect { y: name_box.y - 3.0 * k, ..name_box }, 11.5, 500, Color(WHITE.0, WHITE.1, WHITE.2, ((1.0 - k) * a as f32) as u8), Align::Center);
+            if k > 0.0 {
+                c.draw_text("✓ Tersalin", Rect { y: name_box.y + 5.0 * (1.0 - k), ..name_box }, 11.5, 650, Color(GREEN.0, GREEN.1, GREEN.2, (k * 255.0) as u8), Align::Center);
+            }
+            let ext = extension(path);
+            if !ext.is_empty() && k < 0.5 {
+                c.draw_text(&ext, Rect { y: r.y + 76.0, h: 14.0, ..name_box }, 10.0, 500, fade(DIM), Align::Center);
+            }
+        // The small remove button.
+            if !with_remove {
+                return;
+            }
+            let x = remove_rect(r);
+            c.fill_circle(x.x + x.w / 2.0, x.y + x.h / 2.0, 7.0, Color(0, 0, 0, (a as f32 * 0.55) as u8));
+            c.draw_text("×", x, 13.0, 400, fade(DIM), Align::Center);
     }
 }
 
@@ -166,49 +227,27 @@ impl Module for ShelfModule {
         c.push_clip(l.tiles, 0.0);
         for (i, item) in self.shelf.items().iter().enumerate() {
             let mut r = tile_rect(&l, i, self.scroll);
+            // Tiles after a removed one glide left into the gap.
+            for g in &self.leaving {
+                if i >= g.index {
+                    let e = ease_out(((now_ms - g.t0).max(0)) as f32 / LEAVE_MS);
+                    r.x += (TILE_W + TILE_GAP) * (1.0 - e);
+                }
+            }
             if r.x + r.w < l.tiles.x || r.x > l.tiles.x + l.tiles.w {
                 continue;
             }
             // A newly dropped tile settles in from slightly above.
-            let enter = self.arrived.get(&item.id).map_or(1.0, |&t0| {
-                let k = ((now_ms - t0) as f32 / ENTER_MS).clamp(0.0, 1.0);
-                1.0 - (1.0 - k).powi(3)
-            });
-            r.y -= 14.0 * (1.0 - enter);
-            let a = (enter * 255.0) as u8;
-            let fade = |col: Color| Color(col.0, col.1, col.2, ((col.3 as f32) * enter) as u8);
-            let k = match self.copied {
-                Some((id, t0)) if id == item.id => {
-                    let ms = (now_ms - t0) as f32;
-                    (ms / 120.0).min((COPIED_MS as f32 - ms) / 280.0).clamp(0.0, 1.0)
-                }
-                _ => 0.0,
-            };
-            let mixc = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * k).round() as u8;
-            c.fill_round_rect(r, 12.0, Color(mixc(ROW.0, FLASH.0), mixc(ROW.1, FLASH.1), mixc(ROW.2, FLASH.2), a));
-            let icon = Rect { x: r.x + (r.w - 46.0) / 2.0, y: r.y + 10.0, w: 46.0, h: 46.0 };
-            match self.thumbs.get(&item.path) {
-                Some(Thumb::Ready(id)) => c.draw_image_alpha(*id, icon, 8.0, enter),
-                _ => {
-                    c.fill_round_rect(icon, 10.0, fade(BADGE));
-                    c.draw_text(&extension(&item.path), icon, 11.5, 700, fade(DIM), Align::Center);
-                }
-            }
-            let name = file_name(&item.path);
-            let name_box = Rect { x: r.x + 6.0, y: r.y + 62.0, w: r.w - 12.0, h: 16.0 };
-            let shown = fit_text(c, name, 11.5, 500, name_box.w);
-            c.draw_text(&shown, Rect { y: name_box.y - 3.0 * k, ..name_box }, 11.5, 500, Color(WHITE.0, WHITE.1, WHITE.2, ((1.0 - k) * a as f32) as u8), Align::Center);
-            if k > 0.0 {
-                c.draw_text("✓ Tersalin", Rect { y: name_box.y + 5.0 * (1.0 - k), ..name_box }, 11.5, 650, Color(GREEN.0, GREEN.1, GREEN.2, (k * 255.0) as u8), Align::Center);
-            }
-            let ext = extension(&item.path);
-            if !ext.is_empty() && k < 0.5 {
-                c.draw_text(&ext, Rect { y: r.y + 76.0, h: 14.0, ..name_box }, 10.0, 500, fade(DIM), Align::Center);
-            }
-            // The small remove button.
-            let x = remove_rect(r);
-            c.fill_circle(x.x + x.w / 2.0, x.y + x.h / 2.0, 7.0, Color(0, 0, 0, (a as f32 * 0.55) as u8));
-            c.draw_text("×", x, 13.0, 400, fade(DIM), Align::Center);
+            let enter = self.arrived.get(&item.id).map_or(1.0, |&t0| ease_out((now_ms - t0) as f32 / ENTER_MS));
+            self.draw_tile(c, r, &item.path, item.id, enter, true, now_ms);
+        }
+        // Tiles being removed shrink and fade where they were.
+        for g in &self.leaving {
+            let e = ease_out(((now_ms - g.t0).max(0)) as f32 / LEAVE_MS);
+            let r = tile_rect(&l, g.index, self.scroll);
+            let s = 1.0 - 0.2 * e;
+            let r = Rect { x: r.x + r.w * (1.0 - s) / 2.0, y: r.y + r.h * (1.0 - s) / 2.0 - 8.0 * e, w: r.w * s, h: r.h * s };
+            self.draw_tile(c, r, &g.path, g.id, 1.0 - e, false, now_ms);
         }
         c.pop_clip();
         let max = max_scroll(&l, n);
@@ -219,6 +258,7 @@ impl Module for ShelfModule {
             c.fill_round_rect(Rect { x, y: l.tiles.y + l.tiles.h + 3.0, w: thumb, h: 2.0 }, 1.0, Color(90, 96, 106, 200));
         }
         self.arrived.retain(|_, &mut t0| ((now_ms - t0) as f32) < ENTER_MS);
+        self.leaving.retain(|g| ((now_ms - g.t0) as f32) < LEAVE_MS);
         if self.copied.is_some_and(|(_, t0)| now_ms - t0 > COPIED_MS) {
             self.copied = None;
         }
@@ -230,13 +270,20 @@ impl Module for ShelfModule {
             Event::PointerDown(x, y) => match hit(area, self.scroll, n, *x, *y) {
                 Some(ShelfHit::Clear) => {
                     self.clear_btn.press(now_ms);
+                    // Every tile leaves, one after the other.
+                    for (k, item) in self.shelf.items().iter().enumerate() {
+                        self.leaving.push(Leaving { path: item.path.clone(), id: item.id, index: k, t0: now_ms + 35 * k as i64 });
+                    }
+                    self.anim_until = now_ms + LEAVE_MS as i64 + 35 * n as i64 + 40;
                     self.shelf.clear();
                     self.save();
                     Reaction::Redraw
                 }
                 Some(ShelfHit::Remove(i)) => {
-                    let id = self.shelf.items()[i].id;
-                    self.shelf.remove(id);
+                    let item = self.shelf.items()[i].clone();
+                    self.leaving.push(Leaving { path: item.path.clone(), id: item.id, index: i, t0: now_ms });
+                    self.anim_until = now_ms + LEAVE_MS as i64 + 40;
+                    self.shelf.remove(item.id);
                     self.save();
                     Reaction::Redraw
                 }
