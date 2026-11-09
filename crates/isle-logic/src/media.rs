@@ -4,6 +4,12 @@
 /// A readable app name from an SMTC source id ("X!Spotify" -> "Spotify", "chrome.exe" -> "Chrome").
 pub fn friendly_app(id: &str) -> String {
     let name = match id.split_once('!') {
+        // Packaged apps often use "Package_hash!App": name them after the package.
+        Some((pkg, "App")) => {
+            let base = pkg.split('_').next().unwrap_or(pkg);
+            let base = base.rsplit('.').next().unwrap_or(base);
+            base.strip_suffix("Music").unwrap_or(base)
+        }
         Some((_, after)) => after,
         None => id.strip_suffix(".exe").unwrap_or(id),
     };
@@ -11,6 +17,14 @@ pub fn friendly_app(id: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+/// Some players (Spotify) put "Artist — Album" in the artist field; split it when no album is given.
+pub fn split_artist_album(artist: &str, album: &str) -> (String, String) {
+    match artist.split_once(" — ") {
+        Some((a, b)) if album.is_empty() => (a.trim().to_string(), b.trim().to_string()),
+        _ => (artist.to_string(), album.to_string()),
     }
 }
 
@@ -51,6 +65,20 @@ impl MediaInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn friendly_app_handles_packaged_spotify_id() {
+        assert_eq!(friendly_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!App"), "Spotify");
+    }
+
+    #[test]
+    fn split_artist_album_separates_em_dash_form() {
+        assert_eq!(
+            split_artist_album("Bernadya — Semoga Hanya di Mimpi", ""),
+            ("Bernadya".to_string(), "Semoga Hanya di Mimpi".to_string())
+        );
+        assert_eq!(split_artist_album("A", "B"), ("A".to_string(), "B".to_string()));
+    }
 
     fn info(playing: bool) -> MediaInfo {
         MediaInfo {

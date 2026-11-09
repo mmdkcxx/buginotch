@@ -161,8 +161,9 @@ impl Module for MusicModule {
         if info.duration_ms > 0 {
             c.draw_text(&fmt_time(info.duration_ms), l.total, 10.5, 400, DIM, Align::Right);
         }
-        let btn_col = if lyrics_on { WHITE } else { DIM };
-        c.draw_text("Lirik", l.lyrics_btn, 11.0, 600, btn_col, Align::Right);
+        let (btn_bg, btn_fg) = if lyrics_on { (WHITE, Color(0, 0, 0, 255)) } else { (TRACK, WHITE) };
+        c.fill_round_rect(l.lyrics_btn, 9.0, btn_bg);
+        c.draw_text("Lirik", l.lyrics_btn, 11.0, 600, btn_fg, Align::Center);
         if lyrics_on {
             self.draw_lyrics(c, area, pos);
         }

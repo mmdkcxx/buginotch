@@ -4,7 +4,7 @@
 
 use crate::system::epoch_ms;
 use crate::window::WM_APP_MEDIA;
-use isle_logic::media::{CoverImage, MediaInfo, friendly_app};
+use isle_logic::media::{CoverImage, MediaInfo, friendly_app, split_artist_album};
 use std::sync::{Arc, Mutex};
 use windows::{
     Foundation::TypedEventHandler,
@@ -169,6 +169,7 @@ fn read(s: &Session, previous: Option<MediaInfo>) -> Option<MediaInfo> {
             let title = props.Title().map(|h| h.to_string()).unwrap_or_default();
             let artist = props.Artist().map(|h| h.to_string()).unwrap_or_default();
             let album = props.AlbumTitle().map(|h| h.to_string()).unwrap_or_default();
+            let (artist, album) = split_artist_album(&artist, &album);
             (title, artist, album, read_cover(&props))
         }
     };
