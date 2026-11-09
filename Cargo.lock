@@ -121,6 +121,7 @@ dependencies = [
  "isle-logic",
  "serde_json",
  "windows",
+ "windows-core",
  "windows-numerics",
 ]
 

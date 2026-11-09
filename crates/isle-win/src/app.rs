@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule, clipboard::ClipboardModule};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule, clipboard::ClipboardModule, shelf::ShelfModule};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
@@ -71,6 +71,7 @@ impl App {
                 registry.add(Box::new(TimerModule::new(settings.pomodoro.clone())));
         registry.add(Box::new(TodoModule::new()));
         registry.add(Box::new(ClipboardModule::new()));
+        registry.add(Box::new(ShelfModule::new()));
         App {
             registry,
             settings,
@@ -254,6 +255,30 @@ impl App {
     /// A new clipboard text arrived; returns whether to redraw.
     pub fn clipboard_changed(&mut self, text: &str) -> bool {
         self.registry.clipboard_changed(text, epoch_ms())
+    }
+
+    /// Files dropped on the notch go to the Shelf.
+    pub fn files_dropped(&mut self, paths: &[String]) -> bool {
+        self.registry.goto_id("shelf");
+        self.registry.set_dragging(false);
+        self.registry.files_dropped(paths, epoch_ms())
+    }
+
+    /// Files are being dragged over the notch: open it on the Shelf.
+    pub fn drag_hover(&mut self, over: bool) {
+        if over {
+            self.registry.goto_id("shelf");
+        }
+        self.registry.set_dragging(over);
+        self.pointer(over);
+    }
+
+    pub fn take_drag(&mut self) -> Option<Vec<String>> {
+        self.registry.take_drag()
+    }
+
+    pub fn take_copy_files(&mut self) -> Option<Vec<String>> {
+        self.registry.take_copy_files()
     }
 
     /// Text a page asked to copy during the last click.

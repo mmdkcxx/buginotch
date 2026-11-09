@@ -8,5 +8,6 @@ pub mod clock;
 pub mod headphones;
 pub mod music;
 pub mod timer;
+pub mod shelf;
 pub mod textbox;
 pub mod todo;

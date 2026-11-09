@@ -135,6 +135,20 @@ pub trait Module {
     fn on_clipboard(&mut self, _text: &str, _now_ms: i64) -> bool {
         false
     }
+    /// Files were dropped on the notch. Returns whether anything visible changed.
+    fn on_files(&mut self, _paths: &[String], _now_ms: i64) -> bool {
+        false
+    }
+    /// Files are being dragged over the notch (true) or have left it (false).
+    fn set_dragging(&mut self, _over: bool) {}
+    /// Files the page wants dragged out of the notch now.
+    fn take_drag(&mut self) -> Option<Vec<String>> {
+        None
+    }
+    /// Files the page wants put on the clipboard as files.
+    fn take_copy_files(&mut self) -> Option<Vec<String>> {
+        None
+    }
     /// Text the page wants put on the clipboard after a click.
     fn take_copy(&mut self) -> Option<String> {
         None
@@ -251,6 +265,37 @@ impl Registry {
 
     pub fn take_copy(&mut self) -> Option<String> {
         self.modules.iter_mut().find_map(|m| m.take_copy())
+    }
+
+    pub fn take_drag(&mut self) -> Option<Vec<String>> {
+        self.modules.iter_mut().find_map(|m| m.take_drag())
+    }
+
+    pub fn take_copy_files(&mut self) -> Option<Vec<String>> {
+        self.modules.iter_mut().find_map(|m| m.take_copy_files())
+    }
+
+    pub fn files_dropped(&mut self, paths: &[String], now_ms: i64) -> bool {
+        let mut changed = false;
+        for m in &mut self.modules {
+            changed |= m.on_files(paths, now_ms);
+        }
+        changed
+    }
+
+    pub fn set_dragging(&mut self, over: bool) {
+        for m in &mut self.modules {
+            m.set_dragging(over);
+        }
+    }
+
+    /// Shows the page with this id. Returns whether there is one.
+    pub fn goto_id(&mut self, id: &str) -> bool {
+        let found = (0..self.page_count()).find(|&i| self.page_at_mut(i).is_some_and(|m| m.id() == id));
+        if let Some(i) = found {
+            self.set_page(i);
+        }
+        found.is_some()
     }
 
     pub fn prepare_all(&mut self, c: &mut dyn Canvas) {

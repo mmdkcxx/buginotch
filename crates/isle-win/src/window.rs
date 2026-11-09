@@ -69,6 +69,8 @@ impl Window {
                 None,
             )?;
             let _ = windows::Win32::System::DataExchange::AddClipboardFormatListener(hwnd);
+            crate::shell_win::init();
+            crate::shell_win::register_drop_target(hwnd, crate::shell_win::DropHandlers { hover: drag_hover, files: files_dropped });
             let mut settings = crate::settings_io::load();
             settings.autostart = crate::system::is_autostart();
             APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
@@ -150,6 +152,48 @@ fn apply_window_size(hwnd: HWND) {
         if SetWindowRgn(hwnd, Some(rgn), false) == 0 {
             let _ = DeleteObject(rgn.into());
         }
+    }
+}
+
+/// Carries out file requests a page made during a pointer event: copying a file to the
+/// clipboard, or dragging it out of the notch (which runs until the button is released).
+fn run_file_actions(hwnd: HWND) {
+    if let Some(paths) = APP.with(|a| a.borrow_mut().as_mut().and_then(|app| app.take_copy_files())) {
+        crate::shell_win::copy_files(&paths);
+    }
+    if let Some(paths) = APP.with(|a| a.borrow_mut().as_mut().and_then(|app| app.take_drag())) {
+        unsafe {
+            let _ = ReleaseCapture();
+        }
+        crate::shell_win::drag_files(&paths);
+        // The drag swallowed the button release and any mouse-leave: check where we ended.
+        let mut pt = POINT::default();
+        let mut rc = RECT::default();
+        unsafe {
+            let _ = GetCursorPos(&mut pt);
+            let _ = ScreenToClient(hwnd, &mut pt);
+            let _ = GetClientRect(hwnd, &mut rc);
+        }
+        if pt.x < 0 || pt.y < 0 || pt.x >= rc.right || pt.y >= rc.bottom {
+            pointer(hwnd, false);
+        }
+        draw(hwnd);
+    }
+}
+
+/// Files dragged over the notch open it on the Shelf.
+fn drag_hover(hwnd: HWND, over: bool) {
+    APP.with(|a| a.borrow_mut().as_mut().map(|app| app.drag_hover(over)));
+    apply_window_size(hwnd);
+    kick(hwnd);
+}
+
+/// Files were dropped on the notch.
+fn files_dropped(hwnd: HWND, paths: Vec<String>) {
+    let changed = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.files_dropped(&paths)));
+    if changed {
+        draw(hwnd);
+        kick(hwnd);
     }
 }
 
@@ -392,6 +436,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 if forward_pointer(hwnd, lparam, false) {
                     draw(hwnd);
                 }
+                run_file_actions(hwnd);
             }
             LRESULT(0)
         }
@@ -400,6 +445,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             unsafe {
                 let _ = ReleaseCapture();
             }
+            run_file_actions(hwnd);
             // With capture the pointer may have ended outside: then the notch must close.
             let (px, py) = ((lparam.0 & 0xFFFF) as i16 as i32, ((lparam.0 >> 16) & 0xFFFF) as i16 as i32);
             let mut rc = RECT::default();
