@@ -46,6 +46,10 @@ pub struct App {
     /// The window is currently as large as the open panel.
     pub window_big: bool,
     start: Instant,
+    /// Equaliser clock (stops while paused), bar height scale 0..1, and the uptime of the last step.
+    eq_t: f32,
+    eq_level: f32,
+    eq_prev: f32,
     last: Option<Instant>,
     last_pill: String,
     /// A page slide in progress: (page we are leaving, direction, start epoch ms).
@@ -79,6 +83,9 @@ impl App {
             open: false,
             window_big: false,
             start: Instant::now(),
+            eq_t: 0.0,
+            eq_level: 0.0,
+            eq_prev: 0.0,
             last: None,
             last_pill: String::new(),
             trans: None,
@@ -204,8 +211,25 @@ impl App {
         [self.registry.earliest_wake(now), eq].into_iter().flatten().min()
     }
 
+    /// True while the music is playing (the bars dance) or still settling down after a pause.
     fn equaliser_running(&self) -> bool {
-        !self.open && self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { .. }))
+        let active = self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }));
+        let present = self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { .. }));
+        !self.open && present && (active || self.eq_level > 0.001)
+    }
+
+    /// Advances the equaliser clock: it runs while playing and the bars sink to rest when paused.
+    fn step_equaliser(&mut self) {
+        let now = self.start.elapsed().as_secs_f32();
+        let dt = (now - self.eq_prev).clamp(0.0, 0.25);
+        self.eq_prev = now;
+        let playing = self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }));
+        if playing {
+            self.eq_t += dt;
+            self.eq_level = (self.eq_level + dt * 4.0).min(1.0);
+        } else {
+            self.eq_level = (self.eq_level - dt * 4.0).max(0.0);
+        }
     }
 
     /// Passes a pointer event to the current page (coordinates relative to the notch).
@@ -271,6 +295,7 @@ impl App {
 
     /// Draws the notch shape and its content. `win_w` is the window width in DIPs.
     pub fn paint(&mut self, c: &mut dyn Canvas, win_w: f32) {
+        self.step_equaliser();
         let (w, h, r) = self.dims();
         let x = ((win_w - w) / 2.0).max(0.0);
         c.fill_round_rect(Rect { x, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
@@ -306,9 +331,9 @@ impl App {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }
                         PillItem::Equaliser { .. } => {
-                            let t = self.start.elapsed().as_secs_f32();
+                            let t = self.eq_t;
                             for i in 0..3 {
-                                let bar = 3.0 + 9.0 * equaliser::bar(t, i);
+                                let bar = 3.0 + 9.0 * equaliser::bar(t, i) * self.eq_level;
                                 c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, a));
                             }
                         }
@@ -328,9 +353,9 @@ impl App {
                     c.draw_text(&title, l.title, 13.0, 600, Color(245, 246, 248, ca), Align::Left);
                     let sub = fit_text(c, &card.sub, 11.0, 400, l.sub.w);
                     c.draw_text(&sub, l.sub, 11.0, 400, Color(139, 144, 153, ca), Align::Left);
-                    let t = self.start.elapsed().as_secs_f32();
+                    let t = self.eq_t;
                     for i in 0..3 {
-                        let bar = 3.0 + 9.0 * equaliser::bar(t, i);
+                        let bar = 3.0 + 9.0 * equaliser::bar(t, i) * self.eq_level;
                         c.fill_round_rect(Rect { x: l.eq.x + i as f32 * 4.0, y: l.eq.y + l.eq.h - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ca));
                     }
                     c.fill_round_rect(l.bar, 1.5, Color(43, 47, 54, ca));
