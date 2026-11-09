@@ -15,11 +15,14 @@ pub struct Settings {
     /// Lyrics are shown this many ms ahead of the reported playback position (players report
     /// it late, so lyrics otherwise trail the audio). Raise it if lyrics are late.
     pub lyrics_lead_ms: i64,
+    /// After this many seconds with nothing to show, the pill's clock gives way to blinking eyes.
+    /// 0 turns the eyes off.
+    pub rest_after_secs: i64,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500 }
+        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120 }
     }
 }
 
@@ -42,6 +45,12 @@ mod tests {
     fn lyrics_lead_defaults_to_500_ms_and_can_be_set() {
         assert_eq!(Settings::default().lyrics_lead_ms, 500);
         assert_eq!(Settings::from_toml("lyrics_lead_ms = 250").lyrics_lead_ms, 250);
+    }
+
+    #[test]
+    fn rest_after_defaults_to_two_minutes_and_can_be_set() {
+        assert_eq!(Settings::default().rest_after_secs, 120);
+        assert_eq!(Settings::from_toml("rest_after_secs = 0").rest_after_secs, 0);
     }
 
     #[test]

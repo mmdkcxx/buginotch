@@ -9,6 +9,7 @@ use isle_logic::chrome::{ChromeAction, chrome_hit};
 use isle_logic::headphones::{Level, battery_anim, level_of};
 use isle_logic::module::{Event, PillBattery, PillCard, PillItem, Reaction};
 use isle_logic::equaliser;
+use isle_logic::rest;
 use isle_logic::track_card::{self, CARD_H, CARD_RADIUS, CARD_W};
 use isle_logic::layout::{Hover, target};
 use isle_logic::timefmt::{format_clock, format_date};
@@ -60,6 +61,9 @@ pub struct App {
     text_w: f32,
     /// What the card shows; kept while it shrinks back so it can fade out.
     card_last: Option<PillCard>,
+    /// The pill shows only the clock, so it may fall asleep; the last time it did not (now_ms).
+    rest_ok: bool,
+    last_active: i64,
 }
 
 impl App {
@@ -95,6 +99,8 @@ impl App {
             card: false,
             text_w: 0.0,
             card_last: None,
+            rest_ok: false,
+            last_active: 0,
         }
     }
 
@@ -114,6 +120,7 @@ impl App {
     pub fn pointer(&mut self, inside: bool) {
         self.inside = inside;
         let now = self.now_ms();
+        self.last_active = now;
         self.hover.pointer_inside(inside, now);
     }
 
@@ -203,7 +210,14 @@ impl App {
             }
         }
         let resized = self.sync_lyrics();
-        Poll { redraw: polled || text_changed || self.open || relayout || resized || self.card || self.equaliser_running(), relayout: relayout || resized }
+        let t = local_time();
+        self.rest_ok = !self.open && !self.inside && !self.card && battery.is_none()
+            && self.last_pill == format_clock(t.hour, t.minute)
+            && !self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }));
+        if !self.rest_ok {
+            self.last_active = self.now_ms();
+        }
+        Poll { redraw: polled || text_changed || self.open || relayout || resized || self.card || self.equaliser_running() || self.resting() > 0.0, relayout: relayout || resized }
     }
 
     /// When the modules next need a redraw (epoch ms).
@@ -211,7 +225,23 @@ impl App {
         let now = epoch_ms();
         // The closed pill's equaliser moves, so it needs a steady (but not full-rate) redraw.
         let eq = self.equaliser_running().then_some(now + 33);
-        [self.registry.earliest_wake(now), eq].into_iter().flatten().min()
+        // Eyes: a steady redraw while they show, and one wake for the moment they should appear.
+        let after = self.settings.rest_after_secs * 1000;
+        let eyes = if self.rest_ok && after > 0 {
+            let idle = self.now_ms() - self.last_active;
+            Some(now + if idle >= after { 33 } else { (after - idle).max(1) })
+        } else {
+            None
+        };
+        [self.registry.earliest_wake(now), eq, eyes].into_iter().flatten().min()
+    }
+
+    /// How far the pill has fallen asleep (0 awake .. 1 eyes fully shown).
+    fn resting(&self) -> f32 {
+        if !self.rest_ok {
+            return 0.0;
+        }
+        rest::visibility(self.now_ms() - self.last_active, self.settings.rest_after_secs * 1000)
     }
 
     /// True while the music is playing (the bars dance) or still settling down after a pause.
@@ -351,16 +381,34 @@ impl App {
         if p < 0.98 {
             let idle = (1.0 - gf * 2.0).clamp(0.0, 1.0);
             let a = ((1.0 - p * 1.6).clamp(0.0, 1.0) * idle * 255.0) as u8;
-            if a > 0 {
+            let sleep = self.resting();
+            let a_text = (a as f32 * (1.0 - sleep)) as u8;
+            if sleep > 0.0 && a > 0 {
+                let ea = (a as f32 * sleep) as u8;
+                let e = rest::eyes(self.now_ms());
+                let (cy, gap, r) = (base_h / 2.0, 9.0, 5.0);
+                for k in [-1.0f32, 1.0] {
+                    let cx = x + w / 2.0 + k * (gap + r);
+                    let hh = (2.0 * r * e.open).max(1.5);
+                    let eye = Rect { x: cx - r, y: cy - hh / 2.0, w: 2.0 * r, h: hh };
+                    c.fill_round_rect(eye, hh.min(2.0 * r) / 2.0, Color(245, 246, 248, ea));
+                    if e.open > 0.45 {
+                        c.push_clip(eye, hh.min(2.0 * r) / 2.0);
+                        c.fill_circle(cx + e.look_x * 2.4, cy + e.look_y * 1.8, 2.3, Color(0, 0, 0, ea));
+                        c.pop_clip();
+                    }
+                }
+            }
+            if a_text > 0 {
                 let (text, accent) = self.registry.pill_text(&clock);
-                let color = if accent { Color(52, 211, 153, a) } else { Color(245, 246, 248, a) };
+                let color = if accent { Color(52, 211, 153, a_text) } else { Color(245, 246, 248, a_text) };
                 let room = Rect { x: x + 30.0, y: 0.0, w: (w - 60.0).max(1.0), h: base_h };
                 let text = fit_text(c, &text, 12.0, 600, room.w);
                 match self.registry.pill_battery(epoch_ms()) {
                     Some(b) => draw_text_with_battery(c, &text, room, base_h, color, a, b, epoch_ms()),
                     None => c.draw_text(&text, room, 12.0, 600, color, Align::Center),
                 }
-                let alpha = a as f32 / 255.0;
+                let alpha = a_text as f32 / 255.0;
                 // Left: album art. Right: equaliser. Middle: the text above.
                 for item in self.registry.pill_items() {
                     match item {
@@ -368,13 +416,13 @@ impl App {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }
                         PillItem::Equaliser { .. } => {
-                            let ea = (a as f32 * self.eq_level) as u8;
+                            let ea = (a_text as f32 * self.eq_level) as u8;
                             let t = self.eq_t;
                             for i in 0..3 {
                                 let bar = 3.0 + 9.0 * equaliser::bar(t, i) * self.eq_level;
                                 c.fill_round_rect(Rect { x: x + w - 20.0 + i as f32 * 4.0, y: (base_h + 12.0) / 2.0 - bar, w: 2.0, h: bar }, 1.0, Color(52, 211, 153, ea));
                             }
-                            draw_pause_glyph(c, x + w - 20.0, (base_h - 10.0) / 2.0, (a as f32 * (1.0 - self.eq_level)) as u8);
+                            draw_pause_glyph(c, x + w - 20.0, (base_h - 10.0) / 2.0, (a_text as f32 * (1.0 - self.eq_level)) as u8);
                         }
                     }
                 }

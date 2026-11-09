@@ -15,6 +15,7 @@ pub mod media;
 pub mod module;
 pub mod music_layout;
 pub mod peek;
+pub mod rest;
 pub mod pomodoro;
 pub mod settings;
 pub mod spring;
