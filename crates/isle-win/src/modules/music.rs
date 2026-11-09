@@ -31,6 +31,9 @@ pub struct MusicModule {
     /// Track the lyrics were requested for.
     lyrics_track: String,
     slot: Slot,
+    /// Current synced line as last drawn, and when it last advanced by one (for the scroll).
+    lyric_idx: Option<usize>,
+    lyric_anim_start: Option<i64>,
     watcher: MediaWatcher,
     info: Option<MediaInfo>,
     cover: Option<ImageId>,
@@ -41,7 +44,7 @@ pub struct MusicModule {
 
 impl MusicModule {
     pub fn new(watcher: MediaWatcher, hwnd: isize) -> Self {
-        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), watcher, info: None, cover: None, cover_key: None, had_session: false }
+        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
     }
 
     fn track_key(info: &MediaInfo) -> String {
@@ -56,6 +59,8 @@ impl MusicModule {
             return;
         }
         self.lyrics_track = key.clone();
+        self.lyric_idx = None;
+        self.lyric_anim_start = None;
         self.lyrics = LyricsState::Loading;
         let (slot, hwnd) = (self.slot.clone(), self.hwnd);
         std::thread::spawn(move || {
@@ -165,7 +170,7 @@ impl Module for MusicModule {
         c.fill_round_rect(l.lyrics_btn, 9.0, btn_bg);
         c.draw_text("Lirik", l.lyrics_btn, 11.0, 600, btn_fg, Align::Center);
         if lyrics_on {
-            self.draw_lyrics(c, area, pos);
+            self.draw_lyrics(c, area, pos, now_ms);
         }
         c.fill_round_rect(l.bar, 2.0, TRACK);
         if info.duration_ms > 0 {
@@ -223,21 +228,86 @@ impl Module for MusicModule {
     }
     /// Animates the pill's equaliser and the scrub bar while playing.
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
-        self.playing().then(|| now_ms.max(epoch_ms()) + 120)
+        let now = now_ms.max(epoch_ms());
+        if !self.playing() {
+            return None;
+        }
+        let mut wake = now + 120;
+        if self.lyrics_on {
+            if self.lyric_anim_start.is_some_and(|s| now - s < SCROLL_MS + 20) {
+                wake = now + 8; // keep the scroll smooth
+            } else if let (LyricsState::Ready(Lyrics::Synced(lines)), Some(info)) = (&self.lyrics, &self.info) {
+                // Wake exactly when the next line starts.
+                let pos = info.position_at(now);
+                if let Some(next) = lines.iter().find(|l| l.time_ms > pos) {
+                    wake = wake.min(now + (next.time_ms - pos).max(1));
+                }
+            }
+        }
+        Some(wake)
     }
 }
 
+/// How long a lyric line takes to scroll into place.
+const SCROLL_MS: i64 = 380;
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
 impl MusicModule {
-    fn draw_lyrics(&self, c: &mut dyn Canvas, area: Rect, pos: i64) {
+    fn draw_lyrics(&mut self, c: &mut dyn Canvas, area: Rect, pos: i64, now_ms: i64) {
         let rows = lyric_rows(area);
         let message = |c: &mut dyn Canvas, text: &str| c.draw_text(text, rows[1], 12.0, 400, DIM, Align::Left);
+
+        // Track the current synced line; start a scroll when it advances by exactly one.
+        let idx = match &self.lyrics {
+            LyricsState::Ready(Lyrics::Synced(lines)) => current_index(lines, pos),
+            _ => None,
+        };
+        if idx != self.lyric_idx {
+            self.lyric_anim_start = match (self.lyric_idx, idx) {
+                (Some(a), Some(b)) if b == a + 1 => Some(now_ms),
+                _ => None,
+            };
+            self.lyric_idx = idx;
+        }
+        let t = self.lyric_anim_start.map_or(1.0, |s| ((now_ms - s) as f32 / SCROLL_MS as f32).clamp(0.0, 1.0));
+        let t = 1.0 - (1.0 - t).powi(3); // ease out
+
         let lyrics = match &self.lyrics {
             LyricsState::Loading => return message(c, "Mencari lirik…"),
             LyricsState::Ready(l) => l,
         };
+        if let (Lyrics::Synced(lines), Some(i)) = (lyrics, idx) {
+            // Line j sits at slot (j - i + 1) + (1 - t): slot 1 is the big middle row.
+            let (mid, step) = (rows[1].y + rows[1].h / 2.0, 32.0);
+            for j in i.saturating_sub(2)..=(i + 1).min(lines.len() - 1) {
+                let slot = (j as f32 - i as f32 + 1.0) + (1.0 - t);
+                let dist = (slot - 1.0).abs();
+                let emphasis = (1.0 - dist).clamp(0.0, 1.0);
+                let alpha = (2.0 - dist).clamp(0.0, 1.0);
+                if alpha <= 0.0 {
+                    continue;
+                }
+                let size = lerp(12.0, 15.0, emphasis);
+                let col = Color(
+                    lerp(DIM.0 as f32, WHITE.0 as f32, emphasis) as u8,
+                    lerp(DIM.1 as f32, WHITE.1 as f32, emphasis) as u8,
+                    lerp(DIM.2 as f32, WHITE.2 as f32, emphasis) as u8,
+                    (alpha * 255.0) as u8,
+                );
+                let weight = if emphasis > 0.5 { 650 } else { 400 };
+                let cy = mid + (slot - 1.0) * step;
+                let r = Rect { x: rows[1].x, y: cy - 14.0, w: rows[1].w, h: 28.0 };
+                let text = fit_text(c, &lines[j].text, size, weight, r.w);
+                c.draw_text(&text, r, size, weight, col, Align::Left);
+            }
+            return;
+        }
         let (texts, index): (Vec<&str>, Option<usize>) = match lyrics {
             Lyrics::None => return message(c, "Tidak ada lirik"),
-            Lyrics::Synced(lines) => (lines.iter().map(|l| l.text.as_str()).collect(), current_index(lines, pos)),
+            Lyrics::Synced(lines) => (lines.iter().map(|l| l.text.as_str()).collect(), None),
             Lyrics::Plain(lines) => (lines.iter().map(String::as_str).collect(), None),
         };
         for (slot, line) in window(texts.len(), index).into_iter().enumerate() {

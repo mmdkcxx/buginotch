@@ -174,9 +174,21 @@ fn poll_and_draw(hwnd: HWND) {
 fn schedule_wake(hwnd: HWND) {
     let wake = APP.with(|a| a.borrow().as_ref().and_then(|app| app.next_wake_ms()));
     if let Some(at) = wake {
-        let delay = (at - crate::system::epoch_ms()).clamp(16, 60_000) as u32;
-        unsafe { SetTimer(Some(hwnd), TIMER_WAKE, delay, None) };
+        if at - crate::system::epoch_ms() <= FRAME_WAKE_MS {
+            // Needed within a frame or two (a lyric scroll): run vsync-paced frames.
+            kick(hwnd);
+        } else {
+            let delay = (at - crate::system::epoch_ms()).clamp(16, 60_000) as u32;
+            unsafe { SetTimer(Some(hwnd), TIMER_WAKE, delay, None) };
+        }
     }
+}
+
+/// A module wake-up this close counts as "animating": drive it with vsync frames.
+const FRAME_WAKE_MS: i64 = 24;
+
+fn wants_frames() -> bool {
+    APP.with(|a| a.borrow().as_ref().and_then(|app| app.next_wake_ms())).is_some_and(|at| at - crate::system::epoch_ms() <= FRAME_WAKE_MS)
 }
 
 fn resize_renderer(hwnd: HWND) {
@@ -214,7 +226,7 @@ fn tick(hwnd: HWND) {
         apply_window_size(hwnd);
         draw(hwnd);
     }
-    if step.keep_ticking {
+    if step.keep_ticking || wants_frames() {
         kick(hwnd);
     }
 }
