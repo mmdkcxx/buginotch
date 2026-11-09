@@ -263,17 +263,17 @@ impl App {
                 let body = ui::page_area(area);
                 let slide = self.trans.filter(|&(_, _, t0)| !page_transition::finished(now - t0));
                 c.push_clip(body, 0.0);
-                if let Some((from, dir, t0)) = slide {
-                    let (leaving, arriving) = page_transition::frame(now - t0, dir);
-                    for s in leaving {
-                        c.push_shift(s.dx, s.alpha);
+                if let Some((from, _, t0)) = slide {
+                    let (leaving, arriving) = page_transition::opacities(now - t0);
+                    if leaving > 0.0 {
+                        c.push_shift(0.0, leaving);
                         if let Some(page) = self.registry.page_at_mut(from) {
                             page.draw_panel(c, body, now);
                         }
                         c.pop_shift();
                     }
-                    for s in arriving {
-                        c.push_shift(s.dx, s.alpha);
+                    if arriving > 0.0 {
+                        c.push_shift(0.0, arriving);
                         if let Some(page) = self.registry.current_page_mut() {
                             page.draw_panel(c, body, now);
                         }
