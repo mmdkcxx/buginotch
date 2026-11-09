@@ -19,3 +19,4 @@ pub mod timefmt;
 pub mod timer_layout;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+pub mod page_transition;

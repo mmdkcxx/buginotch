@@ -145,6 +145,12 @@ impl Registry {
         Some(self.modules[i].as_mut())
     }
 
+    /// The page at position `i` (not necessarily the current one).
+    pub fn page_at_mut(&mut self, i: usize) -> Option<&mut (dyn Module + 'static)> {
+        let m = *self.page_indices().get(i)?;
+        Some(self.modules[m].as_mut())
+    }
+
     pub fn modules_mut(&mut self) -> &mut [Box<dyn Module>] {
         &mut self.modules
     }

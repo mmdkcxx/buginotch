@@ -21,6 +21,7 @@ pub struct D2dCanvas<'a> {
     next_image: &'a Cell<u32>,
     family: &'a HSTRING,
     clips: Vec<bool>, // true = layer, false = axis-aligned clip
+    shifts: Vec<Matrix3x2>,
 }
 
 fn col(c: Color) -> D2D1_COLOR_F {
@@ -40,7 +41,7 @@ impl<'a> D2dCanvas<'a> {
         next_image: &'a Cell<u32>,
         family: &'a HSTRING,
     ) -> Self {
-        Self { ctx, dw, brush, images, next_image, family, clips: Vec::new() }
+        Self { ctx, dw, brush, images, next_image, family, clips: Vec::new(), shifts: Vec::new() }
     }
 
     fn format(&self, size: f32, weight: u16, align: Align) -> Option<IDWriteTextFormat> {
@@ -209,6 +210,36 @@ impl Canvas for D2dCanvas<'_> {
             };
             if let Ok(b) = self.ctx.CreateBitmapBrush(bitmap, Some(&props), Some(&brush_props)) {
                 self.ctx.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rf(r), radiusX: radius, radiusY: radius }, &b);
+            }
+        }
+    }
+
+    fn push_shift(&mut self, dx: f32, alpha: f32) {
+        unsafe {
+            let mut old = Matrix3x2::identity();
+            self.ctx.GetTransform(&mut old);
+            let mut moved = old;
+            moved.M31 += dx;
+            self.ctx.SetTransform(&moved);
+            let params = D2D1_LAYER_PARAMETERS1 {
+                contentBounds: D2D_RECT_F { left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 },
+                geometricMask: std::mem::ManuallyDrop::new(None),
+                maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                maskTransform: Matrix3x2::identity(),
+                opacity: alpha.clamp(0.0, 1.0),
+                opacityBrush: std::mem::ManuallyDrop::new(None),
+                layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+            };
+            self.ctx.PushLayer(&params, None);
+            self.shifts.push(old);
+        }
+    }
+
+    fn pop_shift(&mut self) {
+        unsafe {
+            if let Some(old) = self.shifts.pop() {
+                self.ctx.PopLayer();
+                self.ctx.SetTransform(&old);
             }
         }
     }

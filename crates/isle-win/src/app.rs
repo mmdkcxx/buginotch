@@ -10,6 +10,7 @@ use isle_logic::module::{Event, PillItem, Reaction};
 use isle_logic::layout::{Hover, target};
 use isle_logic::timefmt::{format_clock, format_date};
 use isle_logic::module::Registry;
+use isle_logic::page_transition;
 use isle_logic::settings::Settings;
 use isle_logic::spring::Spring;
 use std::time::Instant;
@@ -44,6 +45,8 @@ pub struct App {
     start: Instant,
     last: Option<Instant>,
     last_pill: String,
+    /// A page slide in progress: (page we are leaving, direction, start epoch ms).
+    trans: Option<(usize, f32, i64)>,
 }
 
 impl App {
@@ -68,6 +71,7 @@ impl App {
             start: Instant::now(),
             last: None,
             last_pill: String::new(),
+            trans: None,
         }
     }
 
@@ -184,11 +188,24 @@ impl App {
         }
         let (w, h, _) = self.dims();
         let area = Rect { x: 0.0, y: 0.0, w, h };
-        match chrome_hit(area, x, y, self.registry.page_count()) {
-            Some(ChromeAction::Prev) => self.registry.go(-1),
-            Some(ChromeAction::Next) => self.registry.go(1),
-            Some(ChromeAction::Dot(i)) => self.registry.set_page(i),
+        let before = self.registry.current();
+        let dir = match chrome_hit(area, x, y, self.registry.page_count()) {
+            Some(ChromeAction::Prev) => {
+                self.registry.go(-1);
+                -1.0
+            }
+            Some(ChromeAction::Next) => {
+                self.registry.go(1);
+                1.0
+            }
+            Some(ChromeAction::Dot(i)) => {
+                self.registry.set_page(i);
+                if i > before { 1.0 } else { -1.0 }
+            }
             None => return self.page_event(&Event::PointerDown(x, y)),
+        };
+        if self.registry.current() != before {
+            self.trans = Some((before, dir, epoch_ms()));
         }
         true
     }
@@ -244,11 +261,28 @@ impl App {
             if alpha > 0.5 {
                 let now = epoch_ms();
                 let body = ui::page_area(area);
-                if let Some(page) = self.registry.current_page_mut() {
-                    c.push_clip(body, 0.0);
+                let slide = self.trans.filter(|&(_, _, t0)| !page_transition::finished(now - t0));
+                c.push_clip(body, 0.0);
+                if let Some((from, dir, t0)) = slide {
+                    let (leaving, arriving) = page_transition::frame(now - t0, dir);
+                    for s in leaving {
+                        c.push_shift(s.dx, s.alpha);
+                        if let Some(page) = self.registry.page_at_mut(from) {
+                            page.draw_panel(c, body, now);
+                        }
+                        c.pop_shift();
+                    }
+                    for s in arriving {
+                        c.push_shift(s.dx, s.alpha);
+                        if let Some(page) = self.registry.current_page_mut() {
+                            page.draw_panel(c, body, now);
+                        }
+                        c.pop_shift();
+                    }
+                } else if let Some(page) = self.registry.current_page_mut() {
                     page.draw_panel(c, body, now);
-                    c.pop_clip();
                 }
+                c.pop_clip();
             }
         }
     }
@@ -291,7 +325,11 @@ impl App {
         } else {
             self.last = None;
         }
-        Step { opened, fully_closed, keep_ticking: !settled || hover_pending }
+        let sliding = self.open && self.trans.is_some_and(|(_, _, t0)| !page_transition::finished(epoch_ms() - t0));
+        if !sliding {
+            self.trans = None;
+        }
+        Step { opened, fully_closed, keep_ticking: !settled || hover_pending || sliding }
     }
 }
 

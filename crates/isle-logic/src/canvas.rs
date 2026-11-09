@@ -38,6 +38,10 @@ pub trait Canvas {
             self.draw_image(id, r, radius);
         }
     }
+    /// Draws what follows shifted `dx` sideways at the given opacity, until `pop_shift`.
+    /// The default ignores both (tests don't need them).
+    fn push_shift(&mut self, _dx: f32, _alpha: f32) {}
+    fn pop_shift(&mut self) {}
     fn push_clip(&mut self, r: Rect, radius: f32);
     fn pop_clip(&mut self);
 }
