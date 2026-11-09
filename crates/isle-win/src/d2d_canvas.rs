@@ -187,6 +187,10 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn draw_image(&mut self, id: ImageId, r: Rect, radius: f32) {
+        self.draw_image_alpha(id, r, radius, 1.0);
+    }
+
+    fn draw_image_alpha(&mut self, id: ImageId, r: Rect, radius: f32, alpha: f32) {
         let images = self.images.borrow();
         let Some(bitmap) = images.get(&id) else { return };
         unsafe {
@@ -200,7 +204,7 @@ impl Canvas for D2dCanvas<'_> {
                 interpolationMode: D2D1_INTERPOLATION_MODE_LINEAR,
             };
             let brush_props = D2D1_BRUSH_PROPERTIES {
-                opacity: 1.0,
+                opacity: alpha.clamp(0.0, 1.0),
                 transform: Matrix3x2 { M11: r.w / size.width, M12: 0.0, M21: 0.0, M22: r.h / size.height, M31: r.x, M32: r.y },
             };
             if let Ok(b) = self.ctx.CreateBitmapBrush(bitmap, Some(&props), Some(&brush_props)) {

@@ -32,6 +32,12 @@ pub trait Canvas {
     /// Uploads straight-alpha RGBA8 pixels and returns a handle for `draw_image`.
     fn load_image(&mut self, rgba: &[u8], w: u32, h: u32) -> ImageId;
     fn draw_image(&mut self, id: ImageId, r: Rect, radius: f32);
+    /// Like `draw_image` with an opacity 0..=1. The default only shows it when mostly opaque.
+    fn draw_image_alpha(&mut self, id: ImageId, r: Rect, radius: f32, alpha: f32) {
+        if alpha > 0.5 {
+            self.draw_image(id, r, radius);
+        }
+    }
     fn push_clip(&mut self, r: Rect, radius: f32);
     fn pop_clip(&mut self);
 }

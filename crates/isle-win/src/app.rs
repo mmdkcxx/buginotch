@@ -187,9 +187,11 @@ impl App {
         let x = ((win_w - w) / 2.0).max(0.0);
         c.fill_round_rect(Rect { x, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
 
-        let (closed_w, _, _) = closed_dims(&self.settings, self.wide);
-        let open_w = target(true, self.wide, self.lyrics).size.w;
-        let p = ((w - closed_w) / (open_w - closed_w)).clamp(0.0, 1.0);
+        // Progress of the open/close from the height, which does not change when the lyrics
+        // column widens the open panel (a width-based value jumped and flashed the pill).
+        let (_, closed_h, _) = closed_dims(&self.settings, self.wide);
+        let open_h = target(true, self.wide, self.lyrics).size.h;
+        let p = ((h - closed_h) / (open_h - closed_h)).clamp(0.0, 1.0);
         let t = local_time();
         let clock = format_clock(t.hour, t.minute);
         self.registry.prepare_all(c);
@@ -205,7 +207,7 @@ impl App {
             for item in self.registry.pill_items() {
                 match item {
                     PillItem::MiniCover(id) => {
-                        c.draw_image(id, Rect { x: lx, y: (ph - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0);
+                        c.draw_image_alpha(id, Rect { x: lx, y: (ph - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         lx += 20.0;
                     }
                     PillItem::Equaliser { active } => {
