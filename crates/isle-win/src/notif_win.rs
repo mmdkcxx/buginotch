@@ -106,6 +106,32 @@ fn read_logo(n: &windows::UI::Notifications::UserNotification) -> Option<Icon> {
     reader.LoadAsync(size).ok()?.join().ok()?;
     let mut buf = vec![0u8; size as usize];
     reader.ReadBytes(&mut buf).ok()?;
-    let img = image::load_from_memory(&buf).ok()?.thumbnail(64, 64).to_rgba8();
+    let img = image::load_from_memory(&buf).ok()?.to_rgba8();
+    let img = trim_padding(img);
+    let img = image::DynamicImage::ImageRgba8(img).thumbnail(64, 64).to_rgba8();
     Some(Icon { w: img.width(), h: img.height(), rgba: img.into_raw() })
+}
+
+/// Logos come with a transparent margin; cut it away and centre the rest in a square so the icon
+/// fills its tile.
+fn trim_padding(img: image::RgbaImage) -> image::RgbaImage {
+    let (w, h) = img.dimensions();
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for (x, y, p) in img.enumerate_pixels() {
+        if p.0[3] > 24 {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+    }
+    if x1 < x0 || y1 < y0 {
+        return img;
+    }
+    let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
+    let side = cw.max(ch);
+    let mut out = image::RgbaImage::new(side, side);
+    let cropped = image::imageops::crop_imm(&img, x0, y0, cw, ch).to_image();
+    image::imageops::overlay(&mut out, &cropped, ((side - cw) / 2) as i64, ((side - ch) / 2) as i64);
+    out
 }
