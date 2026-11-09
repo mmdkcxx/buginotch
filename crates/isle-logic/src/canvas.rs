@@ -28,6 +28,8 @@ pub trait Canvas {
     fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, start_deg: f32, sweep_deg: f32, width: f32, c: Color);
     fn draw_text(&mut self, text: &str, r: Rect, size: f32, weight: u16, c: Color, align: Align);
     fn measure_text(&mut self, text: &str, size: f32, weight: u16) -> f32;
+    /// Uploads straight-alpha RGBA8 pixels and returns a handle for `draw_image`.
+    fn load_image(&mut self, rgba: &[u8], w: u32, h: u32) -> ImageId;
     fn draw_image(&mut self, id: ImageId, r: Rect, radius: f32);
     fn push_clip(&mut self, r: Rect, radius: f32);
     fn pop_clip(&mut self);

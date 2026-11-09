@@ -4,6 +4,7 @@
 
 use crate::d2d_canvas::D2dCanvas;
 use isle_logic::canvas::{Canvas, ImageId};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use windows::{
     Win32::{
@@ -25,8 +26,8 @@ pub struct Renderer {
     swap: IDXGISwapChain1,
     dw: IDWriteFactory,
     brush: ID2D1SolidColorBrush,
-    images: HashMap<ImageId, ID2D1Bitmap1>,
-    next_image: u32,
+    images: RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
+    next_image: Cell<u32>,
     font_family: HSTRING,
     dpi: f32,
     _dcomp: IDCompositionDevice,
@@ -82,8 +83,8 @@ impl Renderer {
                 swap,
                 dw,
                 brush,
-                images: HashMap::new(),
-                next_image: 1,
+                images: RefCell::new(HashMap::new()),
+                next_image: Cell::new(1),
                 font_family,
                 dpi,
                 _dcomp: dcomp,
@@ -119,7 +120,7 @@ impl Renderer {
             self.d2d_ctx.BeginDraw();
             self.d2d_ctx.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
             {
-                let mut canvas = D2dCanvas::new(&self.d2d_ctx, &self.dw, &self.brush, &self.images, &self.font_family);
+                let mut canvas = D2dCanvas::new(&self.d2d_ctx, &self.dw, &self.brush, &self.images, &self.next_image, &self.font_family);
                 f(&mut canvas);
             }
             let end = self.d2d_ctx.EndDraw(None, None);
@@ -128,27 +129,6 @@ impl Renderer {
             let _ = self.swap.Present(1, DXGI_PRESENT(0));
         }
         Ok(())
-    }
-
-    /// Registers RGBA8 pixels (straight alpha) as an image usable with `Canvas::draw_image`.
-    pub fn register_image(&mut self, rgba: &[u8], w: u32, h: u32) -> Result<ImageId> {
-        let mut bgra = Vec::with_capacity(rgba.len());
-        for px in rgba.chunks_exact(4) {
-            let a = px[3] as u32;
-            let m = |c: u8| ((c as u32 * a + 127) / 255) as u8;
-            bgra.extend_from_slice(&[m(px[2]), m(px[1]), m(px[0]), px[3]]);
-        }
-        let props = D2D1_BITMAP_PROPERTIES1 {
-            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
-            dpiX: 96.0,
-            dpiY: 96.0,
-            ..Default::default()
-        };
-        let bitmap = unsafe { self.d2d_ctx.CreateBitmap(D2D_SIZE_U { width: w, height: h }, Some(bgra.as_ptr() as *const _), w * 4, &props)? };
-        let id = ImageId(self.next_image);
-        self.next_image += 1;
-        self.images.insert(id, bitmap);
-        Ok(id)
     }
 }
 

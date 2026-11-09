@@ -24,6 +24,10 @@ impl Canvas for RecordingCanvas {
     fn measure_text(&mut self, text: &str, _size: f32, _weight: u16) -> f32 {
         7.0 * text.chars().count() as f32
     }
+    fn load_image(&mut self, _rgba: &[u8], w: u32, h: u32) -> ImageId {
+        self.calls.push(format!("load {w}x{h}"));
+        ImageId(1)
+    }
     fn draw_image(&mut self, id: ImageId, _r: Rect, _radius: f32) {
         self.calls.push(format!("image {}", id.0));
     }

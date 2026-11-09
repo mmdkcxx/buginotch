@@ -61,6 +61,16 @@ pub trait Module {
     fn wants_wide_panel(&self) -> bool {
         false
     }
+    /// True when the closed pill should be wide (music, a peek, ...).
+    fn wide_pill(&self) -> bool {
+        false
+    }
+    /// Called once a second and on wake-ups; returns whether anything visible changed.
+    fn poll(&mut self, _now_ms: i64) -> bool {
+        false
+    }
+    /// Called before each frame, to upload images and other resources.
+    fn prepare(&mut self, _c: &mut dyn Canvas) {}
 }
 
 #[derive(Default)]
@@ -134,6 +144,29 @@ impl Registry {
             }
         }
         best.map(|(_, t)| t).unwrap_or_else(|| fallback.to_string())
+    }
+
+    pub fn poll_all(&mut self, now_ms: i64) -> bool {
+        let mut changed = false;
+        for m in &mut self.modules {
+            changed |= m.poll(now_ms);
+        }
+        changed
+    }
+
+    pub fn prepare_all(&mut self, c: &mut dyn Canvas) {
+        for m in &mut self.modules {
+            m.prepare(c);
+        }
+    }
+
+    pub fn any_wide_pill(&self) -> bool {
+        self.modules.iter().any(|m| m.wide_pill())
+    }
+
+    /// Left-slot item of the highest-priority module that has one.
+    pub fn pill_left(&self) -> Option<PillItem> {
+        self.modules.iter().filter_map(|m| m.pill_left()).next()
     }
 
     pub fn earliest_wake(&self, now_ms: i64) -> Option<i64> {

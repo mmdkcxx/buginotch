@@ -2,6 +2,7 @@
 //! `Canvas` implemented on Direct2D + DirectWrite. Coordinates are DIPs.
 
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use windows_numerics::{Matrix3x2, Vector2};
 use windows::{
@@ -16,7 +17,8 @@ pub struct D2dCanvas<'a> {
     ctx: &'a ID2D1DeviceContext,
     dw: &'a IDWriteFactory,
     brush: &'a ID2D1SolidColorBrush,
-    images: &'a HashMap<ImageId, ID2D1Bitmap1>,
+    images: &'a RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
+    next_image: &'a Cell<u32>,
     family: &'a HSTRING,
     clips: Vec<bool>, // true = layer, false = axis-aligned clip
 }
@@ -34,10 +36,11 @@ impl<'a> D2dCanvas<'a> {
         ctx: &'a ID2D1DeviceContext,
         dw: &'a IDWriteFactory,
         brush: &'a ID2D1SolidColorBrush,
-        images: &'a HashMap<ImageId, ID2D1Bitmap1>,
+        images: &'a RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
+        next_image: &'a Cell<u32>,
         family: &'a HSTRING,
     ) -> Self {
-        Self { ctx, dw, brush, images, family, clips: Vec::new() }
+        Self { ctx, dw, brush, images, next_image, family, clips: Vec::new() }
     }
 
     fn format(&self, size: f32, weight: u16, align: Align) -> Option<IDWriteTextFormat> {
@@ -136,8 +139,32 @@ impl Canvas for D2dCanvas<'_> {
         }
     }
 
+    fn load_image(&mut self, rgba: &[u8], w: u32, h: u32) -> ImageId {
+        let mut bgra = Vec::with_capacity(rgba.len());
+        for px in rgba.chunks_exact(4) {
+            let a = px[3] as u32;
+            let m = |c: u8| ((c as u32 * a + 127) / 255) as u8;
+            bgra.extend_from_slice(&[m(px[2]), m(px[1]), m(px[0]), px[3]]);
+        }
+        let props = D2D1_BITMAP_PROPERTIES1 {
+            pixelFormat: D2D1_PIXEL_FORMAT { format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            dpiX: 96.0,
+            dpiY: 96.0,
+            ..Default::default()
+        };
+        let id = ImageId(self.next_image.get());
+        self.next_image.set(id.0 + 1);
+        unsafe {
+            if let Ok(bitmap) = self.ctx.CreateBitmap(D2D_SIZE_U { width: w, height: h }, Some(bgra.as_ptr() as *const _), w * 4, &props) {
+                self.images.borrow_mut().insert(id, bitmap);
+            }
+        }
+        id
+    }
+
     fn draw_image(&mut self, id: ImageId, r: Rect, radius: f32) {
-        let Some(bitmap) = self.images.get(&id) else { return };
+        let images = self.images.borrow();
+        let Some(bitmap) = images.get(&id) else { return };
         unsafe {
             let size = bitmap.GetSize();
             if size.width <= 0.0 || size.height <= 0.0 {
