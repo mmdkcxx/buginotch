@@ -15,6 +15,9 @@ pub enum Key {
 pub enum Event {
     PointerMove(f32, f32),
     PointerDown(f32, f32),
+    /// Mouse moved with the left button held (after a `PointerDown` on this notch).
+    PointerDrag(f32, f32),
+    PointerUp(f32, f32),
     PointerWheel(f32),
     Key(Key),
 }

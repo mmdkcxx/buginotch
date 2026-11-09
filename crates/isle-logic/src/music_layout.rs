@@ -71,6 +71,12 @@ pub fn lyric_rows(a: Rect) -> [Rect; 3] {
     ]
 }
 
+/// Where along the scrub bar `x` is, 0..=1, clamped (used while dragging past its ends).
+pub fn bar_fraction(a: Rect, lyrics_on: bool, x: f32) -> f32 {
+    let b = layout_for(a, lyrics_on).bar;
+    ((x - b.x) / b.w).clamp(0.0, 1.0)
+}
+
 pub fn hit(a: Rect, x: f32, y: f32) -> Option<MusicHit> {
     hit_for(a, false, x, y)
 }
@@ -106,6 +112,14 @@ pub fn hit_for(a: Rect, lyrics_on: bool, x: f32, y: f32) -> Option<MusicHit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bar_fraction_follows_x_and_clamps_outside_the_bar() {
+        let b = layout_for(A, false).bar;
+        assert_eq!(bar_fraction(A, false, b.x - 50.0), 0.0);
+        assert_eq!(bar_fraction(A, false, b.x + b.w + 50.0), 1.0);
+        assert!((bar_fraction(A, false, b.x + b.w / 4.0) - 0.25).abs() < 0.001);
+    }
 
     const A: Rect = Rect { x: 44.0, y: 36.0, w: 452.0, h: 86.0 };
 

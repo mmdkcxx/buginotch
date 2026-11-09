@@ -62,6 +62,8 @@ pub struct MediaInfo {
     /// Epoch ms at which `position_ms` was read.
     pub updated_at_ms: i64,
     pub cover: Option<CoverImage>,
+    /// The player accepts seek requests (Apple Music for Windows does not).
+    pub can_seek: bool,
 }
 
 impl MediaInfo {
@@ -105,6 +107,7 @@ mod tests {
             artist: "a".into(),
             album: String::new(),
             app: "Spotify".into(),
+            can_seek: true,
             playing,
             position_ms: 10_000,
             duration_ms: 243_000,

@@ -225,7 +225,8 @@ fn read(s: &Session, previous: Option<MediaInfo>) -> Option<MediaInfo> {
         }
     };
     let app = friendly_app(&s.SourceAppUserModelId().map(|h| h.to_string()).unwrap_or_default());
-    Some(MediaInfo { title, artist, album, app, playing, position_ms, duration_ms, updated_at_ms, cover })
+    let can_seek = playback.Controls().and_then(|c| c.IsPlaybackPositionEnabled()).unwrap_or(false);
+    Some(MediaInfo { title, artist, album, app, playing, position_ms, duration_ms, updated_at_ms, cover, can_seek })
 }
 
 fn read_cover(props: &GlobalSystemMediaTransportControlsSessionMediaProperties) -> Option<CoverImage> {

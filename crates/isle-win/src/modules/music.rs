@@ -7,7 +7,7 @@ use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text};
 use isle_logic::media::MediaInfo;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
 use isle_logic::lyrics::{Lyrics, current_index, window};
-use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, hit_for, layout_for, lyric_rows};
+use isle_logic::music_layout::{MusicHit, PLAY_RADIUS, SKIP_RADIUS, bar_fraction, hit_for, layout_for, lyric_rows};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
@@ -33,6 +33,10 @@ pub struct MusicModule {
     slot: Slot,
     /// Current synced line as last drawn, and when it last advanced by one (for the scroll).
     lyric_idx: Option<usize>,
+    /// Fraction under the thumb while the scrub bar is being dragged.
+    scrub: Option<f32>,
+    /// A just-released seek: shown until the player reports the new position.
+    seek_hold: Option<(f32, i64)>,
     lyric_anim_start: Option<i64>,
     watcher: MediaWatcher,
     info: Option<MediaInfo>,
@@ -44,7 +48,7 @@ pub struct MusicModule {
 
 impl MusicModule {
     pub fn new(watcher: MediaWatcher, hwnd: isize) -> Self {
-        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
+        Self { hwnd, lyrics_on: false, lyrics: LyricsState::Loading, lyrics_track: String::new(), slot: Arc::default(), lyric_idx: None, lyric_anim_start: None, scrub: None, seek_hold: None, watcher, info: None, cover: None, cover_key: None, had_session: false }
     }
 
     fn track_key(info: &MediaInfo) -> String {
@@ -161,7 +165,11 @@ impl Module for MusicModule {
         let sub = fit_text(c, &sub, 12.0, 400, l.artist.w);
         c.draw_text(&sub, l.artist, 12.0, 400, DIM, Align::Left);
 
-        let pos = info.position_at(now_ms);
+        let mut pos = info.position_at(now_ms);
+        let shown = self.scrub.or(self.seek_hold.filter(|(_, until)| now_ms < *until).map(|(f, _)| f));
+        if let (Some(f), true) = (shown, info.duration_ms > 0) {
+            pos = (info.duration_ms as f32 * f) as i64;
+        }
         c.draw_text(&fmt_time(pos), l.elapsed, 10.5, 400, DIM, Align::Left);
         if info.duration_ms > 0 {
             c.draw_text(&fmt_time(info.duration_ms), l.total, 10.5, 400, DIM, Align::Right);
@@ -176,6 +184,9 @@ impl Module for MusicModule {
         if info.duration_ms > 0 {
             let f = (pos as f32 / info.duration_ms as f32).clamp(0.0, 1.0);
             c.fill_round_rect(Rect { w: (l.bar.w * f).max(4.0), ..l.bar }, 2.0, WHITE);
+            if self.scrub.is_some() {
+                c.fill_circle(l.bar.x + l.bar.w * f, l.bar.y + l.bar.h / 2.0, 5.0, WHITE);
+            }
         }
 
         for (center, left) in [(l.prev, true), (l.next, false)] {
@@ -195,19 +206,36 @@ impl Module for MusicModule {
         }
     }
     fn on_event(&mut self, e: &Event, area: Rect, now_ms: i64) -> Reaction {
-        let Event::PointerDown(x, y) = e else { return Reaction::None };
         if !self.had_session {
             return Reaction::None;
         }
+        // Players that cannot seek (Apple Music) get a plain progress bar.
+        let duration = self.info.as_ref().filter(|i| i.can_seek).map_or(0, |i| i.duration_ms);
+        match e {
+            Event::PointerDrag(x, _) if self.scrub.is_some() => {
+                self.scrub = Some(bar_fraction(area, self.lyrics_on, *x));
+                return Reaction::Redraw;
+            }
+            Event::PointerUp(x, _) => {
+                let Some(_) = self.scrub.take() else { return Reaction::None };
+                let f = bar_fraction(area, self.lyrics_on, *x);
+                if duration > 0 {
+                    self.watcher.seek((duration as f32 * f) as i64);
+                    self.seek_hold = Some((f, now_ms + 800));
+                }
+                return Reaction::Redraw;
+            }
+            _ => {}
+        }
+        let Event::PointerDown(x, y) = e else { return Reaction::None };
         match hit_for(area, self.lyrics_on, *x, *y) {
             Some(MusicHit::PlayPause) => self.watcher.play_pause(),
             Some(MusicHit::Prev) => self.watcher.previous(),
             Some(MusicHit::Next) => self.watcher.next(),
+            // Press on the bar starts a scrub; the seek happens on release (click = press + release).
             Some(MusicHit::Seek(f)) => {
-                if let Some(info) = &self.info {
-                    if info.duration_ms > 0 {
-                        self.watcher.seek((info.duration_ms as f32 * f) as i64);
-                    }
+                if duration > 0 {
+                    self.scrub = Some(f);
                 }
             }
             Some(MusicHit::LyricsToggle) => {

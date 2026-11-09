@@ -145,6 +145,20 @@ impl App {
         self.registry.earliest_wake(epoch_ms())
     }
 
+    /// Passes a pointer event to the current page (coordinates relative to the notch).
+    pub fn page_event(&mut self, e: &Event) -> bool {
+        if !self.open {
+            return false;
+        }
+        let (w, h, _) = self.dims();
+        let body = ui::page_area(Rect { x: 0.0, y: 0.0, w, h });
+        let now = epoch_ms();
+        match self.registry.current_page_mut() {
+            Some(page) => page.on_event(e, body, now) != Reaction::None,
+            None => false,
+        }
+    }
+
     /// Handles a left click; coordinates are DIPs relative to the notch's top-left.
     /// Returns whether a redraw is needed.
     pub fn click(&mut self, x: f32, y: f32) -> bool {
@@ -157,14 +171,7 @@ impl App {
             Some(ChromeAction::Prev) => self.registry.go(-1),
             Some(ChromeAction::Next) => self.registry.go(1),
             Some(ChromeAction::Dot(i)) => self.registry.set_page(i),
-            None => {
-                let body = ui::page_area(area);
-                let now = epoch_ms();
-                return match self.registry.current_page_mut() {
-                    Some(page) => page.on_event(&Event::PointerDown(x, y), body, now) != Reaction::None,
-                    None => false,
-                };
-            }
+            None => return self.page_event(&Event::PointerDown(x, y)),
         }
         true
     }

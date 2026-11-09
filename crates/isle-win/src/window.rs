@@ -5,6 +5,7 @@ use crate::app::App;
 use crate::renderer::Renderer;
 use crate::tray::{self, ID_AUTOSTART, ID_QUIT, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
+use isle_logic::module::Event;
 use std::cell::RefCell;
 use windows::{
     Win32::{
@@ -117,6 +118,22 @@ fn apply_window_size(hwnd: HWND) {
         let x = r.left + notch_x(r.right - r.left, w_px);
         let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, r.top, w_px, h_px, SWP_NOACTIVATE);
     }
+}
+
+/// Sends a drag (or release) to the current page. Returns whether a redraw is needed.
+fn forward_pointer(hwnd: HWND, lparam: LPARAM, up: bool) -> bool {
+    let s = scale_of(hwnd);
+    let (px, py) = ((lparam.0 & 0xFFFF) as i16 as f32, ((lparam.0 >> 16) & 0xFFFF) as i16 as f32);
+    let mut rc = RECT::default();
+    let _ = unsafe { GetClientRect(hwnd, &mut rc) };
+    let win_w = (rc.right - rc.left) as f32 / s;
+    APP.with(|a| {
+        a.borrow_mut().as_mut().is_some_and(|app| {
+            let (w, _, _) = app.dims();
+            let (x, y) = (px / s - (win_w - w) / 2.0, py / s);
+            app.page_event(&if up { Event::PointerUp(x, y) } else { Event::PointerDrag(x, y) })
+        })
+    })
 }
 
 /// Draws one frame through `App::paint`.
@@ -264,9 +281,35 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 let _ = TrackMouseEvent(&mut tme);
             }
             pointer(hwnd, true);
+            if wparam.0 & 0x0001 != 0 {
+                // MK_LBUTTON: dragging (we hold mouse capture since the press).
+                if forward_pointer(hwnd, lparam, false) {
+                    draw(hwnd);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            let redraw = forward_pointer(hwnd, lparam, true);
+            unsafe {
+                let _ = ReleaseCapture();
+            }
+            // With capture the pointer may have ended outside: then the notch must close.
+            let (px, py) = ((lparam.0 & 0xFFFF) as i16 as i32, ((lparam.0 >> 16) & 0xFFFF) as i16 as i32);
+            let mut rc = RECT::default();
+            let _ = unsafe { GetClientRect(hwnd, &mut rc) };
+            if px < 0 || py < 0 || px >= rc.right || py >= rc.bottom {
+                pointer(hwnd, false);
+            }
+            if redraw {
+                draw(hwnd);
+            }
             LRESULT(0)
         }
         WM_LBUTTONDOWN => {
+            unsafe {
+                let _ = SetCapture(hwnd);
+            }
             let s = scale_of(hwnd);
             let (px, py) = ((lparam.0 & 0xFFFF) as i16 as f32, ((lparam.0 >> 16) & 0xFFFF) as i16 as f32);
             let mut rc = RECT::default();
