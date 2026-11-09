@@ -4,6 +4,7 @@
 mod app;
 mod d2d_canvas;
 mod headphones_win;
+mod input_win;
 mod lrclib;
 mod media_win;
 mod modules;

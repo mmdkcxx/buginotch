@@ -153,6 +153,67 @@ fn apply_window_size(hwnd: HWND) {
 }
 
 /// Sends a drag (or release) to the current page. Returns whether a redraw is needed.
+thread_local! {
+    /// The window has been made activatable so the text box can take the keyboard.
+    static INPUT_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The window that had the keyboard before we took it.
+    static PREV_FOREGROUND: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+    static HIGH_SURROGATE: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
+}
+
+fn text_focus() -> bool {
+    APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.text_focus()))
+}
+
+/// Takes the keyboard when a text box gets focus and gives it back when it ends.
+fn sync_input(hwnd: HWND) {
+    let want = text_focus();
+    if want == INPUT_ON.get() {
+        return;
+    }
+    INPUT_ON.set(want);
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if want {
+            PREV_FOREGROUND.set(GetForegroundWindow().0 as isize);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & !(WS_EX_NOACTIVATE.0 as isize));
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+        } else {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
+            let prev = HWND(PREV_FOREGROUND.get() as *mut _);
+            if !prev.0.is_null() && prev != hwnd && IsWindow(Some(prev)).as_bool() {
+                let _ = SetForegroundWindow(prev);
+            }
+        }
+    }
+}
+
+/// Sends a keyboard event to the page with the text box and carries out what it asks.
+fn send_text_event(hwnd: HWND, e: Event) {
+    let reaction = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.page_reaction(&e)));
+    if let Some(isle_logic::module::Reaction::Copy(text)) = &reaction {
+        crate::input_win::write_clipboard(hwnd, text);
+    }
+    sync_input(hwnd);
+    if reaction.is_some_and(|r| r != isle_logic::module::Reaction::None) {
+        draw(hwnd);
+        kick(hwnd);
+    }
+}
+
+/// Moves the IME's window next to the caret.
+fn place_ime(hwnd: HWND) {
+    let s = scale_of(hwnd);
+    let mut rc = RECT::default();
+    let _ = unsafe { GetClientRect(hwnd, &mut rc) };
+    let win_w = (rc.right - rc.left) as f32 / s;
+    let at = APP.with(|a| a.borrow().as_ref().and_then(|app| app.ime_anchor().map(|p| (p, app.dims().0))));
+    if let Some(((x, y), w)) = at {
+        crate::input_win::place_ime(hwnd, (((win_w - w) / 2.0 + x) * s) as i32, (y * s) as i32);
+    }
+}
+
 fn forward_pointer(hwnd: HWND, lparam: LPARAM, up: bool) -> bool {
     let s = scale_of(hwnd);
     let (px, py) = ((lparam.0 & 0xFFFF) as i16 as f32, ((lparam.0 >> 16) & 0xFFFF) as i16 as f32);
@@ -368,6 +429,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     r || resized
                 })
             });
+            sync_input(hwnd);
             if APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.is_open())) {
                 apply_window_size(hwnd);
                 kick(hwnd);
@@ -433,6 +495,57 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        WM_KEYDOWN if text_focus() => {
+            if let Some(e) = crate::input_win::key_event(hwnd, wparam.0 as u16) {
+                send_text_event(hwnd, e);
+            }
+            LRESULT(0)
+        }
+        WM_CHAR if text_focus() => {
+            let unit = wparam.0 as u16;
+            let text = if (0xD800..0xDC00).contains(&unit) {
+                HIGH_SURROGATE.set(unit);
+                None
+            } else if (0xDC00..0xE000).contains(&unit) {
+                char::decode_utf16([HIGH_SURROGATE.replace(0), unit]).next().and_then(|r| r.ok()).map(String::from)
+            } else if unit >= 0x20 && unit != 0x7F {
+                char::from_u32(unit as u32).map(String::from)
+            } else {
+                None
+            };
+            if let Some(t) = text {
+                send_text_event(hwnd, Event::Text(t));
+            }
+            LRESULT(0)
+        }
+        WM_IME_STARTCOMPOSITION if text_focus() => {
+            place_ime(hwnd);
+            LRESULT(0)
+        }
+        WM_IME_COMPOSITION if text_focus() => {
+            for e in crate::input_win::ime_events(hwnd, lparam.0 as u32) {
+                send_text_event(hwnd, e);
+            }
+            place_ime(hwnd);
+            LRESULT(0)
+        }
+        WM_IME_ENDCOMPOSITION if text_focus() => {
+            send_text_event(hwnd, Event::Compose(None));
+            LRESULT(0)
+        }
+        WM_KILLFOCUS if INPUT_ON.get() => {
+            // The user clicked elsewhere: end the edit.
+            send_text_event(hwnd, Event::Edit { key: isle_logic::module::EditKey::Escape, shift: false });
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_MOUSEWHEEL => {
+            let steps = ((wparam.0 >> 16) as i16) as f32 / 120.0;
+            let redraw = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.page_event(&Event::PointerWheel(steps))));
+            if redraw {
+                draw(hwnd);
+            }
+            LRESULT(0)
+        }
         WM_DPICHANGED | WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
             place_window(hwnd);
             apply_window_size(hwnd);

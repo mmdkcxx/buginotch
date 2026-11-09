@@ -2,11 +2,17 @@
 //! The feature-module trait and the registry that pages through modules.
 
 use crate::canvas::{Canvas, ImageId, Rect};
+pub use crate::text_edit::Composition;
 
+/// Keys that edit or move in a text box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Key {
-    Char(char),
+pub enum EditKey {
     Backspace,
+    Delete,
+    Left,
+    Right,
+    Home,
+    End,
     Enter,
     Escape,
 }
@@ -19,7 +25,14 @@ pub enum Event {
     PointerDrag(f32, f32),
     PointerUp(f32, f32),
     PointerWheel(f32),
-    Key(Key),
+    /// An editing or movement key; `shift` extends the selection.
+    Edit { key: EditKey, shift: bool },
+    /// Characters typed or pasted.
+    Text(String),
+    /// Ctrl+A (`'a'`), Ctrl+C (`'c'`) or Ctrl+X (`'x'`). Paste arrives as `Text`.
+    Shortcut(char),
+    /// An IME is composing; `None` when it ended.
+    Compose(Option<Composition>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +53,8 @@ pub enum Reaction {
     None,
     Redraw,
     Peek(PeekRequest),
+    /// Put this text on the clipboard.
+    Copy(String),
 }
 
 /// What the closed pill shows while it is grown into a "new song" card.
@@ -103,6 +118,15 @@ pub trait Module {
         false
     }
     /// Called once a second and on wake-ups; returns whether anything visible changed.
+    /// True while the module's text box has keyboard focus: the window then takes
+    /// keyboard input, and the notch stays open.
+    fn wants_text(&self) -> bool {
+        false
+    }
+    /// Where the text caret is (DIPs, relative to the page area), for placing the IME window.
+    fn text_caret(&self) -> Option<(f32, f32)> {
+        None
+    }
     fn poll(&mut self, _now_ms: i64) -> bool {
         false
     }

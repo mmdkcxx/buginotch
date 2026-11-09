@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
@@ -65,6 +65,7 @@ impl App {
         registry.add(Box::new(ClockModule));
         registry.add(Box::new(ChargingModule::new()));
                 registry.add(Box::new(TimerModule::new(settings.pomodoro.clone())));
+        registry.add(Box::new(TodoModule::new()));
         App {
             registry,
             settings,
@@ -209,15 +210,32 @@ impl App {
 
     /// Passes a pointer event to the current page (coordinates relative to the notch).
     pub fn page_event(&mut self, e: &Event) -> bool {
+        self.page_reaction(e) != Reaction::None
+    }
+
+    /// True while the current page's text box has keyboard focus.
+    pub fn text_focus(&self) -> bool {
+        self.registry.current_page().is_some_and(|m| m.wants_text())
+    }
+
+    /// Where the text caret is, relative to the notch's top-left (DIPs).
+    pub fn ime_anchor(&self) -> Option<(f32, f32)> {
+        let (w, h, _) = self.dims();
+        let body = ui::page_area(Rect { x: 0.0, y: 0.0, w, h });
+        let (cx, cy) = self.registry.current_page()?.text_caret()?;
+        Some((body.x + cx, body.y + cy))
+    }
+
+    pub fn page_reaction(&mut self, e: &Event) -> Reaction {
         if !self.open {
-            return false;
+            return Reaction::None;
         }
         let (w, h, _) = self.dims();
         let body = ui::page_area(Rect { x: 0.0, y: 0.0, w, h });
         let now = epoch_ms();
         match self.registry.current_page_mut() {
-            Some(page) => page.on_event(e, body, now) != Reaction::None,
-            None => false,
+            Some(page) => page.on_event(e, body, now),
+            None => Reaction::None,
         }
     }
 
@@ -365,7 +383,7 @@ impl App {
         let dt = self.last.map(|l| (now - l).as_secs_f32()).unwrap_or(1.0 / 60.0).min(0.05);
         self.last = Some(now);
 
-        let want_open = self.hover.update(self.now_ms());
+        let want_open = self.hover.update(self.now_ms()) || self.text_focus();
         let mut opened = false;
         if want_open != self.open {
             self.w.set_damping(22.0);
