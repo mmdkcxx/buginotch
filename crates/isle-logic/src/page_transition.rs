@@ -1,26 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Page-to-page transition: the old page fades out while the new one fades in.
+//! Page-to-page transition: both pages drift a little in the direction of travel while the
+//! old one fades out and the new one fades in.
 
-pub const DURATION_MS: i64 = 260;
+pub const DURATION_MS: i64 = 320;
+/// How far (DIPs) a page moves while it fades.
+pub const TRAVEL: f32 = 24.0;
 
-fn ease_in_out(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+/// Where one page is drawn: horizontal shift and opacity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pose {
+    pub dx: f32,
+    pub alpha: f32,
+}
+
+fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
 /// Eased progress 0..=1 after `elapsed_ms`.
 pub fn progress(elapsed_ms: i64) -> f32 {
-    ease_in_out(elapsed_ms as f32 / DURATION_MS as f32)
+    ease_out(elapsed_ms as f32 / DURATION_MS as f32)
 }
 
 pub fn finished(elapsed_ms: i64) -> bool {
     elapsed_ms >= DURATION_MS
 }
 
-/// (opacity of the page being left, opacity of the page arriving).
-pub fn opacities(elapsed_ms: i64) -> (f32, f32) {
+/// (page being left, page arriving) when moving in `dir` (+1 towards the next page).
+pub fn frame(elapsed_ms: i64, dir: f32) -> (Pose, Pose) {
     let e = progress(elapsed_ms);
-    (1.0 - e, e)
+    (Pose { dx: -dir * TRAVEL * e, alpha: 1.0 - e }, Pose { dx: dir * TRAVEL * (1.0 - e), alpha: e })
 }
 
 #[cfg(test)]
@@ -28,20 +37,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fades_swap_from_the_old_page_to_the_new_one() {
-        assert_eq!(opacities(0), (1.0, 0.0));
-        assert_eq!(opacities(DURATION_MS), (0.0, 1.0));
+    fn starts_with_the_old_page_in_place_and_ends_with_the_new_one() {
+        let (out, inc) = frame(0, 1.0);
+        assert_eq!((out.dx, out.alpha, inc.alpha), (0.0, 1.0, 0.0));
+        assert_eq!(inc.dx, TRAVEL);
+        let (out, inc) = frame(DURATION_MS, 1.0);
+        assert_eq!((out.alpha, inc.dx, inc.alpha), (0.0, 0.0, 1.0));
+        assert_eq!(out.dx, -TRAVEL);
     }
 
     #[test]
-    fn progress_is_monotonic_and_the_two_opacities_sum_to_one() {
+    fn pages_drift_the_way_the_arrow_points() {
+        let (out, inc) = frame(DURATION_MS / 3, 1.0);
+        assert!(out.dx < 0.0 && inc.dx > 0.0);
+        let (out, inc) = frame(DURATION_MS / 3, -1.0);
+        assert!(out.dx > 0.0 && inc.dx < 0.0);
+    }
+
+    #[test]
+    fn progress_is_monotonic_and_fast_at_first() {
         let mut last = 0.0;
         for ms in (0..=DURATION_MS).step_by(10) {
-            let (out, inc) = opacities(ms);
-            assert!(inc >= last);
-            assert!((out + inc - 1.0).abs() < 1e-6);
-            last = inc;
+            let p = progress(ms);
+            assert!(p >= last);
+            last = p;
         }
+        assert!(progress(DURATION_MS / 4) > 0.5);
     }
 
     #[test]
