@@ -36,6 +36,12 @@ impl Peek {
         (!self.text.is_empty() && now_ms < self.until_ms).then_some(self.text.as_str())
     }
 
+    /// When the message expires, if that is still ahead of `now_ms`. Modules return this from
+    /// their wake-up schedule: a time already past would wake the window again at once, forever.
+    pub fn wake_after(&self, now_ms: i64) -> Option<i64> {
+        self.next_wake_ms().filter(|&t| t > now_ms)
+    }
+
     /// When the current message expires, for scheduling a redraw.
     pub fn next_wake_ms(&self) -> Option<i64> {
         (!self.text.is_empty()).then_some(self.until_ms)
@@ -60,6 +66,15 @@ mod tests {
         assert_eq!(p.next_wake_ms(), None);
         p.show("x".into(), 100, 3200);
         assert_eq!(p.next_wake_ms(), Some(3300));
+    }
+
+    #[test]
+    fn an_expired_peek_asks_for_no_more_wake_ups() {
+        let mut p = Peek::default();
+        p.show("x".into(), 100, 3200);
+        assert_eq!(p.wake_after(3000), Some(3300));
+        assert_eq!(p.wake_after(3300), None);
+        assert_eq!(p.wake_after(9000), None);
     }
 
     #[test]

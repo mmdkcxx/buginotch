@@ -242,7 +242,7 @@ impl Module for NotificationsModule {
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         // Keep frames coming while the cards trade places.
         let moving = self.swapping(now_ms).then_some(now_ms + 16);
-        [self.peek.next_wake_ms(), moving].into_iter().flatten().min()
+        [self.peek.wake_after(now_ms), moving].into_iter().flatten().min()
     }
 }
 
