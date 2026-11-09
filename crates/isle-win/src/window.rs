@@ -3,7 +3,7 @@
 
 use crate::app::App;
 use crate::renderer::Renderer;
-use isle_logic::canvas::{Align, Color, Rect};
+use crate::tray::{self, ID_AUTOSTART, ID_QUIT, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
 use isle_logic::settings::Settings;
 use std::cell::RefCell;
@@ -26,6 +26,8 @@ const TIMER_SECOND: usize = 2;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
+    static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
+    static HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static RENDERER: RefCell<Option<Renderer>> = const { RefCell::new(None) };
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
@@ -62,7 +64,13 @@ impl Window {
                 Some(instance.into()),
                 None,
             )?;
-            APP.with(|a| *a.borrow_mut() = Some(App::new(Settings::default())));
+            let path = crate::system::data_path("settings.toml");
+            let mut settings = std::fs::read_to_string(&path).map(|t| Settings::from_toml(&t)).unwrap_or_default();
+            settings.autostart = crate::system::is_autostart();
+            APP.with(|a| *a.borrow_mut() = Some(App::new(settings)));
+            if let Ok(t) = Tray::add(hwnd) {
+                TRAY.with(|c| *c.borrow_mut() = Some(t));
+            }
             apply_window_size(hwnd);
             let mut rc = RECT::default();
             GetClientRect(hwnd, &mut rc)?;
@@ -120,6 +128,20 @@ fn draw(hwnd: HWND) {
                 let _ = renderer.frame(|c| app.paint(c, win_w));
             }
         });
+    });
+}
+
+/// Writes settings.toml (autostart mirrors the registry).
+fn save_settings() {
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
+            app.settings.autostart = crate::system::is_autostart();
+            let path = crate::system::data_path("settings.toml");
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(path, app.settings.to_toml());
+        }
     });
 }
 
@@ -217,7 +239,33 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             pointer(hwnd, false);
             LRESULT(0)
         }
+        WM_APP_TRAY => {
+            if (lparam.0 & 0xFFFF) as u32 == WM_RBUTTONUP {
+                tray::show_menu(hwnd);
+            }
+            LRESULT(0)
+        }
+        WM_COMMAND => {
+            match wparam.0 & 0xFFFF {
+                ID_AUTOSTART => {
+                    tray::toggle_autostart();
+                    save_settings();
+                }
+                ID_QUIT => unsafe {
+                    let _ = DestroyWindow(hwnd);
+                },
+                _ => {}
+            }
+            LRESULT(0)
+        }
         WM_TIMER if wparam.0 == TIMER_SECOND => {
+            let fullscreen = crate::system::fullscreen_app_active();
+            if fullscreen != HIDDEN.get() {
+                HIDDEN.set(fullscreen);
+                unsafe {
+                    let _ = ShowWindow(hwnd, if fullscreen { SW_HIDE } else { SW_SHOWNOACTIVATE });
+                }
+            }
             if APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.on_second())) {
                 draw(hwnd);
             }
@@ -233,6 +281,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_DESTROY => {
+            TRAY.with(|c| {
+                if let Some(t) = c.borrow().as_ref() {
+                    t.remove();
+                }
+            });
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }

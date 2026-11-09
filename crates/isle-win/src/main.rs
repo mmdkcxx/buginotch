@@ -6,6 +6,7 @@ mod d2d_canvas;
 mod modules;
 mod renderer;
 mod system;
+mod tray;
 mod ui;
 mod window;
 
@@ -20,6 +21,9 @@ pub(crate) fn log(line: &str) {
 
 fn main() {
     std::panic::set_hook(Box::new(|info| log(&format!("panic: {info}"))));
+    if !system::acquire_single_instance() {
+        return;
+    }
     if let Err(e) = window::run() {
         log(&format!("error: {e}"));
     }
