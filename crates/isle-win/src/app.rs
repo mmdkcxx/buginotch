@@ -728,7 +728,7 @@ fn draw_osd(c: &mut dyn Canvas, x: f32, w: f32, pill_h: f32, o: PillOsd, a: u8) 
     let (tint, dim) = match (o.kind, o.muted) {
         (_, true) => ((139, 144, 153), (60, 64, 71)),
         (OsdKind::Volume, false) => ((245, 246, 248), (70, 74, 82)),
-        (OsdKind::Brightness, false) => ((255, 211, 107), (70, 74, 82)),
+        (OsdKind::Brightness, false) => ((245, 246, 248), (70, 74, 82)),
     };
     let col = |t: (u8, u8, u8), al: u8| Color(t.0, t.1, t.2, al);
     let cy = pill_h / 2.0;
