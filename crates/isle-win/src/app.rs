@@ -72,8 +72,13 @@ pub struct App {
 
 impl App {
     pub fn new(mut settings: Settings) -> Self {
-        if std::env::var_os("ISLE_GLASS").is_some_and(|v| v == "1") {
-            settings.glass = true;
+        match std::env::var("ISLE_GLASS").as_deref() {
+            Ok("1") => settings.glass = true,
+            Ok("light") => {
+                settings.glass = true;
+                settings.glass_light = true;
+            }
+            _ => {}
         }
         let (w, h, r) = closed_dims(&settings, false);
         let mut registry = Registry::new();
@@ -188,13 +193,14 @@ impl App {
         for i in 0..LAYERS {
             let e = reach * (i + 1) as f32 / LAYERS as f32;
             let rect = Rect { x: x - e, y: -e - r, w: w + 2.0 * e, h: h + r + 2.0 * e + drop };
-            c.fill_round_rect(rect, r + e, Color(0, 0, 0, alpha));
+            c.fill_round_rect(rect, r + e, if self.settings.glass_light { Color(30, 40, 80, alpha.saturating_sub(1)) } else { Color(0, 0, 0, alpha) });
         }
         c.pop_clip();
     }
 
-    pub fn set_glass(&mut self, on: bool) {
+    pub fn set_glass(&mut self, on: bool, light: bool) {
         self.settings.glass = on;
+        self.settings.glass_light = light;
     }
 
     pub fn is_open(&self) -> bool {
@@ -417,26 +423,30 @@ impl App {
             // a faint sheen that fades down the shape, and thin lit edges.
             // rgba(18,20,26,.5) tint, a sheen fading from white .12 to .02 over the height (stepped
         // bands, since the canvas has no gradient), and 1px edges on the sides and bottom.
+        let light = self.settings.glass_light;
         self.paint_glass_shadow(c, x, w, h, r);
-        c.fill_round_rect(shape, r, Color(18, 20, 26, 128));
+        // Dark: rgba(18,20,26,.5) tint, sheen white .12 -> .02. Light: rgba(246,247,250,.5) tint,
+        // sheen white .55 -> .25, brighter edges (the artifact's two glass variants).
+        c.fill_round_rect(shape, r, if light { Color(246, 247, 250, 128) } else { Color(18, 20, 26, 128) });
         c.push_clip(shape, r);
-        // One flat 2% layer, plus 25 layers of 1/255 that each end a little earlier: the sum
-        // fades from about 12% at the top to 2% at the bottom with no visible seams.
-        c.fill_round_rect(Rect { h, ..shape }, 0.0, Color(255, 255, 255, 5));
+        // One flat layer, plus 25 thin layers that each end a little earlier: the sum fades down
+        // the shape with no visible seams.
+        c.fill_round_rect(Rect { h, ..shape }, 0.0, Color(255, 255, 255, if light { 64 } else { 5 }));
         const LAYERS: i32 = 25;
         for i in 0..LAYERS {
             let bottom = h * (i + 1) as f32 / LAYERS as f32;
-            c.fill_round_rect(Rect { x, y: 0.0, w, h: bottom }, 0.0, Color(255, 255, 255, 1));
+            c.fill_round_rect(Rect { x, y: 0.0, w, h: bottom }, 0.0, Color(255, 255, 255, if light { 3 } else { 1 }));
         }
-        c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, 36));
-        c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 41));
-        c.fill_round_rect(Rect { x: x + w - 1.0, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 41));
+        let (edge, lit) = if light { (178, 204) } else { (41, 36) };
+        c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, lit));
+        c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, edge));
+        c.fill_round_rect(Rect { x: x + w - 1.0, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, edge));
         c.pop_clip();
         } else {
             c.fill_round_rect(shape, r, Color(0, 0, 0, 255));
         }
         // Everything drawn from here on may be remapped for the see-through background.
-        c.set_glass(self.settings.glass);
+        c.set_glass(self.settings.glass, self.settings.glass_light);
 
         // Progress of the open/close from the height, which does not change when the lyrics
         // column widens the open panel (a width-based value jumped and flashed the pill).

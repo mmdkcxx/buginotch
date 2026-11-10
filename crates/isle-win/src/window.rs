@@ -3,7 +3,7 @@
 
 use crate::app::App;
 use crate::renderer::Renderer;
-use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_GLASS, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
+use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_GLASS, ID_GLASS_LIGHT, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
 use isle_logic::module::Event;
 use std::cell::RefCell;
@@ -729,12 +729,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     save_settings();
                 }
                 ID_UPDATE => crate::updater::check_now(),
-                ID_GLASS => {
-                    let on = !crate::settings_io::load().glass;
-                    crate::settings_io::update(|s| s.glass = on);
+                id @ (ID_GLASS | ID_GLASS_LIGHT) => {
+                    // Picking the active style again turns the glass off; otherwise it switches to it.
+                    let want_light = id == ID_GLASS_LIGHT;
+                    let now = crate::settings_io::load();
+                    let on = !(now.glass && now.glass_light == want_light);
+                    crate::settings_io::update(|s| {
+                        s.glass = on;
+                        s.glass_light = want_light && on;
+                    });
                     APP.with(|a| {
                         if let Some(app) = a.borrow_mut().as_mut() {
-                            app.set_glass(on);
+                            app.set_glass(on, want_light && on);
                         }
                     });
                     draw(hwnd);
