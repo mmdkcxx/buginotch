@@ -84,7 +84,6 @@ impl App {
         registry.add(Box::new(WidgetsModule::new(&settings.world_clocks)));
         registry.add(Box::new(NotificationsModule::new()));
         registry.add(Box::new(DigiohModule::new()));
-        registry.add(Box::new(DigiohModule::new()));
         registry.add(Box::new(UpdateModule::new()));
         App {
             registry,
