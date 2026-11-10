@@ -48,6 +48,9 @@ pub trait Canvas {
     }
     /// Draws what follows shifted `dx` sideways at the given opacity, until `pop_shift`.
     /// The default ignores both (tests don't need them).
+    /// Glass mode: the notch is see-through, so dark shapes made for a black background (tracks,
+    /// chips, buttons) are drawn as light translucent ones and dim grey text is lifted.
+    fn set_glass(&mut self, _on: bool) {}
     fn push_shift(&mut self, _dx: f32, _alpha: f32) {}
     fn pop_shift(&mut self) {}
     fn push_clip(&mut self, r: Rect, radius: f32);

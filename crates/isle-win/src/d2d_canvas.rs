@@ -67,12 +67,34 @@ pub struct D2dCanvas<'a> {
     next_image: &'a Cell<u32>,
     family: &'a HSTRING,
     display: Option<&'a DisplayFont>,
+    glass: bool,
     clips: Vec<bool>, // true = layer, false = axis-aligned clip
     shifts: Vec<Matrix3x2>,
 }
 
 fn col(c: Color) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r: c.0 as f32 / 255.0, g: c.1 as f32 / 255.0, b: c.2 as f32 / 255.0, a: c.3 as f32 / 255.0 }
+}
+
+/// Glass remap for shapes: a dark, nearly grey colour (the tracks and chips drawn for a black
+/// background) becomes white with a see-through amount that follows its brightness.
+fn glass_fill(c: Color) -> Color {
+    let (mx, mn) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
+    if mx == 0 || mx > 90 || mx - mn > 24 {
+        return c;
+    }
+    let alpha = (0.10 + mx as f32 / 90.0 * 0.12) * 255.0 * (c.3 as f32 / 255.0);
+    Color(255, 255, 255, alpha as u8)
+}
+
+/// Glass remap for text: mid grey (the dim secondary text) is lifted toward white.
+fn glass_text(c: Color) -> Color {
+    let (mx, mn) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
+    if !(85..=200).contains(&mx) || mx - mn > 24 {
+        return c;
+    }
+    let alpha = if mx < 115 { 150.0 } else { 185.0 };
+    Color(244, 245, 247, (alpha * c.3 as f32 / 255.0) as u8)
 }
 
 fn rf(r: Rect) -> D2D_RECT_F {
@@ -89,7 +111,7 @@ impl<'a> D2dCanvas<'a> {
         family: &'a HSTRING,
         display: Option<&'a DisplayFont>,
     ) -> Self {
-        Self { ctx, dw, brush, images, next_image, family, display, clips: Vec::new(), shifts: Vec::new() }
+        Self { ctx, dw, brush, images, next_image, family, display, glass: false, clips: Vec::new(), shifts: Vec::new() }
     }
 
     fn format(&self, size: f32, weight: u16, align: Align) -> Option<IDWriteTextFormat> {
@@ -122,7 +144,12 @@ impl<'a> D2dCanvas<'a> {
 }
 
 impl Canvas for D2dCanvas<'_> {
+    fn set_glass(&mut self, on: bool) {
+        self.glass = on;
+    }
+
     fn fill_round_rect(&mut self, r: Rect, radius: f32, c: Color) {
+        let c = if self.glass { glass_fill(c) } else { c };
         unsafe {
             self.brush.SetColor(&col(c));
             self.ctx.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rf(r), radiusX: radius, radiusY: radius }, self.brush);
@@ -151,6 +178,7 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, c: Color) {
+        let c = if self.glass { glass_fill(c) } else { c };
         unsafe {
             self.brush.SetColor(&col(c));
             self.ctx.FillEllipse(&D2D1_ELLIPSE { point: Vector2 { X: cx, Y: cy }, radiusX: r, radiusY: r }, self.brush);
@@ -158,6 +186,7 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, start_deg: f32, sweep_deg: f32, width: f32, c: Color) {
+        let c = if self.glass { glass_fill(c) } else { c };
         unsafe {
             let Ok(factory) = self.ctx.GetFactory() else { return };
             let Ok(path) = factory.CreatePathGeometry() else { return };
@@ -192,6 +221,7 @@ impl Canvas for D2dCanvas<'_> {
 
     fn draw_text(&mut self, text: &str, r: Rect, size: f32, weight: u16, c: Color, align: Align) {
         let Some(fmt) = self.format(size, weight, align) else { return };
+        let c = if self.glass { glass_text(c) } else { c };
         let wide: Vec<u16> = text.encode_utf16().collect();
         unsafe {
             self.brush.SetColor(&col(c));

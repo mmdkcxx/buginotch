@@ -194,7 +194,7 @@ impl Module for DigiohModule {
             } else if !self.last.is_empty() {
                 c.draw_text("Dipakai terakhir", Rect { x: row.x, w: 110.0, ..row }, 12.0, 400, DIM, Align::Left);
                 c.fill_round_rect(l.last, 13.0, BORDER);
-                c.fill_round_rect(Rect { x: l.last.x + 1.0, y: l.last.y + 1.0, w: l.last.w - 2.0, h: l.last.h - 2.0 }, 12.0, Color(0, 0, 0, 255));
+                c.fill_round_rect(Rect { x: l.last.x + 1.0, y: l.last.y + 1.0, w: l.last.w - 2.0, h: l.last.h - 2.0 }, 12.0, Color(0, 0, 0, 110));
                 // History glyph: an open ring with an arrow tip.
                 c.stroke_arc(l.last.x + 15.0, l.last.y + 13.0, 4.5, -60.0, 300.0, 1.5, DIM);
                 c.draw_display(&self.last, Rect { x: l.last.x + 25.0, w: l.last.w - 30.0, ..l.last }, 14.0, 1.4, WHITE, Align::Left);

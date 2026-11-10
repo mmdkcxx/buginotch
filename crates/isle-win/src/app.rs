@@ -399,7 +399,7 @@ impl App {
             // a faint sheen that fades down the shape, and thin lit edges.
             // rgba(18,20,26,.5) tint, a sheen fading from white .12 to .02 over the height (stepped
         // bands, since the canvas has no gradient), and 1px edges on the sides and bottom.
-        c.fill_round_rect(shape, r, Color(18, 20, 26, 150));
+        c.fill_round_rect(shape, r, Color(18, 20, 26, 128));
         c.push_clip(shape, r);
         // One flat 2% layer, plus 25 layers of 1/255 that each end a little earlier: the sum
         // fades from about 12% at the top to 2% at the bottom with no visible seams.
@@ -416,6 +416,8 @@ impl App {
         } else {
             c.fill_round_rect(shape, r, Color(0, 0, 0, 255));
         }
+        // Everything drawn from here on may be remapped for the see-through background.
+        c.set_glass(self.settings.glass);
 
         // Progress of the open/close from the height, which does not change when the lyrics
         // column widens the open panel (a width-based value jumped and flashed the pill).
