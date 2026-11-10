@@ -558,6 +558,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     let _ = ShowWindow(hwnd, if fullscreen { SW_HIDE } else { SW_SHOWNOACTIVATE });
                 }
             }
+            if !fullscreen {
+                // Another window can slip above the notch (Windows does not always keep a topmost
+                // window first); raise it again without moving or activating it.
+                unsafe {
+                    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            }
             poll_and_draw(hwnd);
             LRESULT(0)
         }
