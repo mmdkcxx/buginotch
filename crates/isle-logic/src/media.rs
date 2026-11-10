@@ -32,6 +32,12 @@ pub fn friendly_app(id: &str) -> String {
     }
 }
 
+/// Only Spotify and Apple Music feed the music card; browsers (YouTube, Instagram) and other players are ignored.
+pub fn is_supported_player(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    id.contains("spotify") || id.contains("applemusic")
+}
+
 /// Some players (Spotify) put "Artist — Album" in the artist field; split it when no album is given.
 pub fn split_artist_album(artist: &str, album: &str) -> (String, String) {
     match artist.split_once(" — ") {
@@ -85,6 +91,17 @@ mod tests {
     #[test]
     fn friendly_app_handles_packaged_spotify_id() {
         assert_eq!(friendly_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!App"), "Spotify");
+    }
+
+    #[test]
+    fn only_spotify_and_apple_music_are_supported() {
+        assert!(is_supported_player("Spotify.exe"));
+        assert!(is_supported_player("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!App"));
+        assert!(is_supported_player("AppleInc.AppleMusicWin_nzyj5cx40ttqa!App"));
+        assert!(!is_supported_player("chrome.exe"));
+        assert!(!is_supported_player("msedge.exe"));
+        assert!(!is_supported_player("Firefox.exe"));
+        assert!(!is_supported_player(""));
     }
 
     #[test]

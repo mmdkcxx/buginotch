@@ -4,7 +4,7 @@
 
 use crate::system::epoch_ms;
 use crate::window::WM_APP_MEDIA;
-use isle_logic::media::{CoverImage, MediaInfo, friendly_app, split_artist_album};
+use isle_logic::media::{CoverImage, MediaInfo, friendly_app, is_supported_player, split_artist_album};
 use std::sync::{Arc, Mutex};
 use windows::{
     Foundation::TypedEventHandler,
@@ -54,6 +54,11 @@ impl MediaWatcher {
             *slot2.lock().unwrap() = Some(Arc::clone(&inner));
             let a = Arc::clone(&inner);
             let _ = inner.manager.CurrentSessionChanged(&TypedEventHandler::new(move |_, _| {
+                attach(&a);
+                Ok(())
+            }));
+            let a = Arc::clone(&inner);
+            let _ = inner.manager.SessionsChanged(&TypedEventHandler::new(move |_, _| {
                 attach(&a);
                 Ok(())
             }));
@@ -112,14 +117,33 @@ fn notify(inner: &Inner) {
     }
 }
 
-/// (Re)subscribes to the current session and reads it in full.
+fn supported(s: &Session) -> bool {
+    s.SourceAppUserModelId().is_ok_and(|id| is_supported_player(&id.to_string()))
+}
+
+/// The Spotify / Apple Music session to show: the system's current one if it is supported,
+/// else one that is playing, else any supported one. Browsers and other apps never qualify.
+fn pick_session(manager: &Manager) -> Option<Session> {
+    if let Ok(cur) = manager.GetCurrentSession() {
+        if supported(&cur) {
+            return Some(cur);
+        }
+    }
+    let all: Vec<Session> = manager.GetSessions().ok()?.into_iter().filter(supported).collect();
+    let playing = |s: &Session| {
+        s.GetPlaybackInfo().and_then(|p| p.PlaybackStatus()).is_ok_and(|st| st == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing)
+    };
+    all.iter().find(|s| playing(s)).or_else(|| all.first()).cloned()
+}
+
+/// (Re)subscribes to the chosen session and reads it in full.
 fn attach(inner: &Arc<Inner>) {
     if let Some(old) = inner.subs.lock().unwrap().take() {
         let _ = old.session.RemoveMediaPropertiesChanged(old.tokens[0]);
         let _ = old.session.RemovePlaybackInfoChanged(old.tokens[1]);
         let _ = old.session.RemoveTimelinePropertiesChanged(old.tokens[2]);
     }
-    let current = inner.manager.GetCurrentSession().ok();
+    let current = pick_session(&inner.manager);
     *inner.session.lock().unwrap() = current.clone();
     if let Some(s) = current {
         let (a, b, c) = (Arc::clone(inner), Arc::clone(inner), Arc::clone(inner));
