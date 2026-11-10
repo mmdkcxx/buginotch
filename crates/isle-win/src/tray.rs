@@ -5,6 +5,7 @@ use crate::system::{is_autostart, set_autostart};
 use windows::{
     Win32::{
         Foundation::*,
+        System::LibraryLoader::GetModuleHandleW,
         UI::{Shell::*, WindowsAndMessaging::*},
     },
     core::*,
@@ -32,7 +33,7 @@ impl Tray {
                 uID: TRAY_UID,
                 uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
                 uCallbackMessage: WM_APP_TRAY,
-                hIcon: LoadIconW(None, IDI_APPLICATION)?,
+                hIcon: app_icon(2),
                 ..Default::default()
             };
             let tip: Vec<u16> = "Buginotch".encode_utf16().collect();
@@ -81,4 +82,16 @@ pub fn show_menu(hwnd: HWND) {
 
 pub fn toggle_autostart() {
     let _ = set_autostart(!is_autostart());
+}
+
+/// Icon from the exe resources (1 = tile for the shell, 2 = tray glyph);
+/// falls back to the stock icon if the exe was built without resources.
+pub fn app_icon(id: usize) -> HICON {
+    unsafe {
+        let inst = GetModuleHandleW(None).map(|m| HINSTANCE(m.0)).unwrap_or_default();
+        let size = GetSystemMetrics(SM_CXSMICON);
+        LoadImageW(Some(inst), PCWSTR(id as *const u16), IMAGE_ICON, size, size, LR_DEFAULTCOLOR)
+            .map(|h| HICON(h.0))
+            .unwrap_or_else(|_| LoadIconW(None, IDI_APPLICATION).unwrap_or_default())
+    }
 }

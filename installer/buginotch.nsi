@@ -18,6 +18,8 @@ SetCompressor /SOLID lzma
 !define OLD_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\IsleWin"
 !define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
+!define MUI_ICON "..\crates\isle-win\assets\buginotch.ico"
+!define MUI_UNICON "..\crates\isle-win\assets\buginotch.ico"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -67,6 +69,7 @@ Section "Install"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortcut "$SMPROGRAMS\Buginotch.lnk" "$INSTDIR\buginotch.exe"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "Buginotch"
+  WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\buginotch.exe"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "Buginotch"
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
