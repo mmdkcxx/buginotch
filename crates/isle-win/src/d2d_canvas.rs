@@ -83,6 +83,10 @@ fn glass_fill(c: Color) -> Color {
     if mx == 0 || mx > 90 || mx - mn > 24 {
         return c;
     }
+    // The very darkest fills are wells (empty input cells): they stay dark so they read as recesses.
+    if mx <= 22 {
+        return Color(0, 0, 0, (70.0 * c.3 as f32 / 255.0) as u8);
+    }
     let alpha = (0.10 + mx as f32 / 90.0 * 0.12) * 255.0 * (c.3 as f32 / 255.0);
     Color(255, 255, 255, alpha as u8)
 }

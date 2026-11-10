@@ -175,6 +175,30 @@ impl App {
         self.settings.glass.then(|| self.dims())
     }
 
+    /// A soft shadow around the glass (CSS `0 22px 50px rgba(0,0,0,.35)`): stacked translucent
+    /// rounded rects, drawn only outside the shape so it never dulls the glass itself.
+    fn paint_glass_shadow(&self, c: &mut dyn Canvas, x: f32, w: f32, h: f32, r: f32) {
+        let grow = ((h - 26.0) / (184.0 - 26.0)).clamp(0.0, 1.0);
+        let reach = 10.0 + 24.0 * grow;
+        let drop = 4.0 + 14.0 * grow;
+        const LAYERS: i32 = 12;
+        let alpha = (3.0 + 2.0 * grow) as u8;
+        let outside = [
+            Rect { x: x - 80.0, y: h - 0.5, w: w + 160.0, h: 120.0 },
+            Rect { x: x - 80.0, y: 0.0, w: 80.5, h },
+            Rect { x: x + w - 0.5, y: 0.0, w: 80.5, h },
+        ];
+        for clip in outside {
+            c.push_clip(clip, 0.0);
+            for i in 0..LAYERS {
+                let e = reach * (i + 1) as f32 / LAYERS as f32;
+                let rect = Rect { x: x - e, y: -e - r, w: w + 2.0 * e, h: h + r + 2.0 * e + drop };
+                c.fill_round_rect(rect, r + e, Color(0, 0, 0, alpha));
+            }
+            c.pop_clip();
+        }
+    }
+
     pub fn set_glass(&mut self, on: bool) {
         self.settings.glass = on;
     }
@@ -399,6 +423,7 @@ impl App {
             // a faint sheen that fades down the shape, and thin lit edges.
             // rgba(18,20,26,.5) tint, a sheen fading from white .12 to .02 over the height (stepped
         // bands, since the canvas has no gradient), and 1px edges on the sides and bottom.
+        self.paint_glass_shadow(c, x, w, h, r);
         c.fill_round_rect(shape, r, Color(18, 20, 26, 128));
         c.push_clip(shape, r);
         // One flat 2% layer, plus 25 layers of 1/255 that each end a little earlier: the sum

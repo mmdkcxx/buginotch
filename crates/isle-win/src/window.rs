@@ -28,7 +28,9 @@ const TIMER_WAKE: usize = 3;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
-    static REGION: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((0, 0, 0)) };
+    static REGION: std::cell::Cell<(i32, i32, i32, bool)> = const { std::cell::Cell::new((0, 0, 0, false)) };
+    /// The notch's own rectangle (left, width, height in px), without the shadow around it.
+    static INNER: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((0, 0, 0)) };
     static LAST_POLL_MS: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
     static TICK_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
@@ -144,12 +146,16 @@ fn apply_window_size(hwnd: HWND) {
     let win_w = rc.right - rc.left;
     let (w_px, h_px) = ((w * s).round() as i32, (h * s).round() as i32);
     let left = (win_w - w_px) / 2;
+    let glass = APP.with(|a| a.borrow().as_ref().is_some_and(|app| app.blur_shape().is_some()));
+    INNER.set((left, w_px, h_px));
     // Skip identical regions (this runs every animation frame).
-    if REGION.replace((left, w_px, h_px)) == (left, w_px, h_px) {
+    if REGION.replace((left, w_px, h_px, glass)) == (left, w_px, h_px, glass) {
         return;
     }
+    // The glass shadow needs room around the shape; clicks there still pass through (WM_NCHITTEST).
+    let (side, down) = if glass { ((SHADOW_SIDE * s) as i32, (SHADOW_DOWN * s) as i32) } else { (0, 0) };
     unsafe {
-        let rgn = CreateRectRgn(left, 0, left + w_px, h_px);
+        let rgn = CreateRectRgn(left - side, 0, left + w_px + side, h_px + down);
         // The window owns the region after a successful call.
         if SetWindowRgn(hwnd, Some(rgn), false) == 0 {
             let _ = DeleteObject(rgn.into());
@@ -516,8 +522,15 @@ fn wants_frames() -> bool {
 
 /// The swap chain is always as big as the largest open panel (plus slack), so growing or
 /// shrinking the window never reallocates it: reallocating cleared the frame and blinked.
+/// The drawing buffer (DIPs): the widest notch plus room on each side and below for the glass shadow.
+const SHADOW_W: f32 = 760.0;
+const SHADOW_H: f32 = 250.0;
+/// How far the shadow may reach past the notch's region: sideways and downward (DIPs).
+const SHADOW_SIDE: f32 = 40.0;
+const SHADOW_DOWN: f32 = 64.0;
+
 fn buffer_px(scale: f32) -> (u32, u32) {
-    ((680.0 * scale).ceil() as u32, (190.0 * scale).ceil() as u32)
+    ((SHADOW_W * scale).ceil() as u32, (SHADOW_H * scale).ceil() as u32)
 }
 
 fn resize_renderer(hwnd: HWND) {
@@ -600,6 +613,21 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             draw(hwnd);
             LRESULT(0)
+        }
+        WM_NCHITTEST => {
+            // Where only the glass shadow is, the mouse goes to whatever is underneath.
+            let glass = REGION.get().3;
+            if glass {
+                let mut pt = POINT { x: (lparam.0 & 0xFFFF) as i16 as i32, y: ((lparam.0 >> 16) & 0xFFFF) as i16 as i32 };
+                unsafe {
+                    let _ = ScreenToClient(hwnd, &mut pt);
+                }
+                let (left, w_px, h_px) = INNER.get();
+                if pt.x < left || pt.x >= left + w_px || pt.y >= h_px {
+                    return LRESULT(-1);
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_MOUSEMOVE => {
             let mut tme = TRACKMOUSEEVENT {
