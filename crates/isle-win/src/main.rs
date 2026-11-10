@@ -2,6 +2,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod digioh;
 mod d2d_canvas;
 mod headphones_win;
 mod input_win;

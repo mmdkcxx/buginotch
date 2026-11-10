@@ -4,6 +4,8 @@
 
 pub mod airpods;
 pub mod clipboard;
+pub mod digioh;
+pub mod digioh_layout;
 pub mod canvas;
 pub mod chrome;
 pub mod equaliser;
