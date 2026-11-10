@@ -228,7 +228,7 @@ impl App {
         if !self.rest_ok {
             self.last_active = self.now_ms();
         }
-        Poll { redraw: polled || text_changed || self.open || relayout || resized || self.card || self.equaliser_running() || self.resting() > 0.0, relayout: relayout || resized }
+        Poll { redraw: polled || text_changed || self.open || relayout || resized || self.card || self.equaliser_running() || self.resting() > 0.0 || epoch_ms() - self.pill_rolling_ms < 120, relayout: relayout || resized }
     }
 
     /// When the modules next need a redraw (epoch ms).
