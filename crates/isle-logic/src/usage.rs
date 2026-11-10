@@ -182,7 +182,7 @@ pub fn reset_text(resets_at_ms: i64, now_ms: i64, utc_offset_min: i64) -> String
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Notice {
-    /// This many minutes (10 or 5) to the reset.
+    /// This many minutes (10, 5 or 1) to the reset.
     Soon(Which, i64),
     /// The reset time has passed.
     Reset(Which),
@@ -193,11 +193,12 @@ struct Track {
     target: Option<i64>,
     sent10: bool,
     sent5: bool,
+    sent1: bool,
     done: bool,
 }
 
-/// Decides when to tell the user about a reset: once at 10 minutes, once at 5, once at the
-/// reset. Whatever is already past when a target is first seen stays quiet, so starting the
+/// Decides when to tell the user about a reset: once at 10 minutes, once at 5, once at 1, once at
+/// the reset. Whatever is already past when a target is first seen stays quiet, so starting the
 /// app 7 minutes before a reset does not announce the 10-minute mark.
 #[derive(Debug, Clone, Default)]
 pub struct Notifier {
@@ -221,7 +222,7 @@ impl Notifier {
             return;
         }
         let rem = target - now_ms;
-        *t = Track { target: Some(target), sent10: rem <= 10 * MIN, sent5: rem <= 5 * MIN, done: rem <= 0 };
+        *t = Track { target: Some(target), sent10: rem <= 10 * MIN, sent5: rem <= 5 * MIN, sent1: rem <= MIN, done: rem <= 0 };
     }
 
     /// What is due now. Call it often (every second is fine).
@@ -236,7 +237,15 @@ impl Notifier {
                     t.done = true;
                     t.sent10 = true;
                     t.sent5 = true;
+                    t.sent1 = true;
                     out.push(Notice::Reset(w));
+                }
+            } else if rem <= MIN {
+                if !t.sent1 {
+                    t.sent1 = true;
+                    t.sent5 = true;
+                    t.sent10 = true;
+                    out.push(Notice::Soon(w, 1));
                 }
             } else if rem <= 5 * MIN {
                 if !t.sent5 {
@@ -335,6 +344,9 @@ mod tests {
         assert!(n.due(T - 9 * MIN).is_empty(), "only once");
         assert_eq!(n.due(T - 5 * MIN), vec![Notice::Soon(Which::Five, 5)]);
         assert!(n.due(T - 4 * MIN).is_empty());
+        assert!(n.due(T - 2 * MIN).is_empty());
+        assert_eq!(n.due(T - MIN), vec![Notice::Soon(Which::Five, 1)]);
+        assert!(n.due(T - 30_000).is_empty(), "only once");
         assert_eq!(n.due(T), vec![Notice::Reset(Which::Five)]);
         assert!(n.due(T + MIN).is_empty());
     }
@@ -348,6 +360,14 @@ mod tests {
         let mut late = Notifier::default();
         late.observe(Which::Week, Some(T), T + MIN);
         assert!(late.due(T + MIN).is_empty(), "already reset when first seen");
+    }
+
+    #[test]
+    fn starting_inside_the_last_minute_only_announces_the_reset() {
+        let mut n = Notifier::default();
+        n.observe(Which::Five, Some(T), T - 30_000);
+        assert!(n.due(T - 20_000).is_empty());
+        assert_eq!(n.due(T), vec![Notice::Reset(Which::Five)]);
     }
 
     #[test]

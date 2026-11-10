@@ -939,7 +939,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 }
 
 pub fn run() -> Result<()> {
-    let _window = Window::create()?;
+    let window = Window::create()?;
     unsafe {
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -947,6 +947,10 @@ pub fn run() -> Result<()> {
             DispatchMessageW(&msg);
         }
     }
+    // Tearing the graphics objects down one by one crashed the process on every quit (and a
+    // crashing process keeps its exe locked while Windows writes the report, which broke
+    // updates). The process ends right after this, so let the system free everything.
+    std::mem::forget(window);
     Ok(())
 }
 

@@ -50,15 +50,22 @@ const RUN_VALUE: PCWSTR = w!("Buginotch");
 /// Returns false when another Isle is already running (named mutex).
 pub fn acquire_single_instance() -> bool {
     unsafe {
-        match CreateMutexW(None, false, w!("Local\\Buginotch")) {
-            Ok(handle) => {
-                let exists = GetLastError() == ERROR_ALREADY_EXISTS;
-                // Keep the handle open for the process lifetime.
-                std::mem::forget(handle);
-                !exists
+        // After an update the old copy may still be closing: wait for it up to ~4 s.
+        for _ in 0..40 {
+            match CreateMutexW(None, false, w!("Local\\Buginotch")) {
+                Ok(handle) => {
+                    if GetLastError() != ERROR_ALREADY_EXISTS {
+                        // Keep the handle open for the process lifetime.
+                        std::mem::forget(handle);
+                        return true;
+                    }
+                    let _ = windows::Win32::Foundation::CloseHandle(handle);
+                }
+                Err(_) => return true,
             }
-            Err(_) => true,
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        false
     }
 }
 

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/isle-logic", "crates/isle-win"]
 
 [workspace.package]
-version = "0.3.12"
+version = "0.3.13"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false

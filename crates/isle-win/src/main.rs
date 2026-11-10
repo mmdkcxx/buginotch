@@ -44,4 +44,10 @@ fn main() {
     }
     // An update the user chose to install when quitting.
     updater::run_pending_install();
+    // Leave at once. Even ExitProcess crashed here (the detach of the graphics DLLs), and a
+    // crashing process keeps its exe locked, which broke updates. See `window::run`.
+    unsafe {
+        use windows::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        let _ = TerminateProcess(GetCurrentProcess(), 0);
+    }
 }

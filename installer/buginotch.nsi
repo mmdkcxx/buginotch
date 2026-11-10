@@ -60,9 +60,24 @@ Section "Install"
   ; A running copy would lock the exe (upgrade case).
   nsExec::Exec 'taskkill /F /IM buginotch.exe'
   nsExec::Exec 'taskkill /F /IM isle-win.exe'
-  Sleep 300
+  Sleep 500
   Call MigrateOldInstall
   SetOutPath "$INSTDIR"
+  ; The old process can linger for a moment (Windows holds its exe while closing it). Wait
+  ; for the file to be free; if it never is, move it aside (a running exe can be renamed).
+  Delete "$INSTDIR\buginotch.exe.old"
+  StrCpy $1 0
+  waitexe:
+    ClearErrors
+    Delete "$INSTDIR\buginotch.exe"
+    IfFileExists "$INSTDIR\buginotch.exe" 0 exefree
+    IntOp $1 $1 + 1
+    IntCmp $1 12 moveaside 0 moveaside
+    Sleep 500
+    Goto waitexe
+  moveaside:
+    Rename "$INSTDIR\buginotch.exe" "$INSTDIR\buginotch.exe.old"
+  exefree:
   File "..\target\x86_64-pc-windows-gnu\release\buginotch.exe"
   File "..\LICENSE"
   File "..\NOTICE.md"
@@ -89,6 +104,7 @@ Section "Uninstall"
   nsExec::Exec 'taskkill /F /IM buginotch.exe'
   Sleep 300
   Delete "$INSTDIR\buginotch.exe"
+  Delete "$INSTDIR\buginotch.exe.old"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\NOTICE.md"
   Delete "$INSTDIR\Uninstall.exe"
