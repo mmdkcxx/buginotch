@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Isle Shelf</title>
+<style>
+:root{--bg:#0b0d10;--card:#14161a;--line:#262a31;--fg:#f5f6f8;--dim:#8b9099;--blue:#3b82f6;--green:#34d399;--red:#f87171}
+@media (prefers-color-scheme: light){:root{--bg:#f2f4f7;--card:#fff;--line:#dde1e7;--fg:#14171c;--dim:#5b626d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+main{max-width:520px;margin:0 auto}
+h1{font-size:22px;margin:8px 0 4px}
+.ok{color:var(--green);font-size:13px;display:flex;align-items:center;gap:6px}
+.ok:before{content:"";width:8px;height:8px;border-radius:4px;background:currentColor}
+.bad{color:var(--red)}
+.pick{display:flex;gap:10px;margin:18px 0 6px}
+.btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:0;border-radius:14px;background:var(--blue);color:#04122a;font:inherit;font-weight:700;cursor:pointer}
+.btn.alt{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+input[type=file]{display:none}
+h2{font-size:12px;letter-spacing:.05em;color:var(--dim);margin:22px 2px 8px;text-transform:uppercase}
+.row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.row .n{flex:1;min-width:0}
+.row .n b{display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .n small{color:var(--dim);font-size:12px}
+.row a{color:var(--blue);font-weight:700;text-decoration:none;padding:6px 4px}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .15s}
+.empty{color:var(--dim);font-size:14px;padding:6px 2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Isle Shelf</h1>
+<div id="st" class="ok">Terhubung ke PC</div>
+<div class="pick">
+<label class="btn" for="media">Foto dan video</label>
+<label class="btn alt" for="other">File lain</label>
+</div>
+<!-- Photos only offer JPEG/PNG here, so iOS converts HEIC photos to JPEG as they are picked. -->
+<input id="media" type="file" multiple accept="image/jpeg,image/png,video/*">
+<input id="other" type="file" multiple>
+<div id="up"></div>
+<h2>Dari PC</h2>
+<div id="down"><div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div></div>
+</main>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var T = q.get("t") || sessionStorage.getItem("t") || "";
+  try { sessionStorage.setItem("t", T); } catch (e) {}
+  var up = document.getElementById("up"), down = document.getElementById("down"), st = document.getElementById("st");
+  var queue = [], busy = false;
+  function size(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
+    if (n < 1073741824) return (n / 1048576).toFixed(1).replace(".", ",") + " MB";
+    return (n / 1073741824).toFixed(2).replace(".", ",") + " GB";
+  }
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  function esc(s) { return s.replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
+  function add(files) {
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i], row = el("div", "row");
+      row.innerHTML = '<div class="n"><b>' + esc(f.name) + '</b><small>' + size(f.size) + ' · menunggu</small><div class="bar"><i></i></div></div>';
+      up.insertBefore(row, up.firstChild);
+      queue.push({file: f, row: row});
+    }
+    next();
+  }
+  function next() {
+    if (busy || !queue.length) return;
+    busy = true;
+    var job = queue.shift(), f = job.file, small = job.row.querySelector("small"), bar = job.row.querySelector("i");
+    var x = new XMLHttpRequest();
+    x.open("POST", "/api/upload?name=" + encodeURIComponent(f.name));
+    x.setRequestHeader("X-Token", T);
+    x.upload.onprogress = function (e) {
+      if (e.lengthComputable) { bar.style.width = (100 * e.loaded / e.total) + "%"; small.textContent = size(e.loaded) + " dari " + size(e.total); }
+    };
+    function end(ok, msg) {
+      busy = false;
+      bar.style.width = ok ? "100%" : "0";
+      small.textContent = ok ? size(f.size) + " · terkirim ke PC" : msg;
+      if (!ok) small.className = "bad";
+      next();
+    }
+    x.onload = function () { end(x.status === 200, x.status === 413 ? "Terlalu besar (maks 2 GB)" : "Gagal (" + x.status + ")"); };
+    x.onerror = function () { end(false, "Gagal, PC tidak terjangkau"); };
+    x.send(f);
+  }
+  ["media", "other"].forEach(function (id) {
+    var inp = document.getElementById(id);
+    inp.onchange = function () { add(inp.files); inp.value = ""; };
+  });
+  function refresh() {
+    fetch("/api/list", {headers: {"X-Token": T}}).then(function (r) {
+      if (!r.ok) throw 0;
+      st.className = "ok"; st.textContent = "Terhubung ke PC";
+      return r.json();
+    }).then(function (items) {
+      if (!items.length) { down.innerHTML = '<div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div>'; return; }
+      down.innerHTML = "";
+      items.forEach(function (it) {
+        var row = el("div", "row");
+        row.innerHTML = '<div class="n"><b>' + esc(it.name) + '</b><small>' + size(it.size) + '</small></div><a download="' + esc(it.name) + '" href="/f/' + it.id + '?t=' + encodeURIComponent(T) + '">Unduh</a>';
+        down.appendChild(row);
+      });
+    }).catch(function () { st.className = "ok bad"; st.textContent = "Terputus. Pindai kode QR lagi di PC."; });
+  }
+  refresh();
+  setInterval(refresh, 4000);
+})();
+</script>
+</body>
+</html>

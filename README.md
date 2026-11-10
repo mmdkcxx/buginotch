@@ -50,6 +50,15 @@ The token can also be given as the `ISLE_UPDATE_TOKEN` environment variable (not
 disk). Each release needs `IsleWin-Setup-x.y.z.exe`; the release workflow also uploads its
 `.sha256`.
 
+## Phone link (Shelf)
+
+Press **Ponsel** on the Shelf page to start a small web server (local network only). Scan the QR code with an iPhone or Android camera; the page that opens sends files to the Shelf and downloads the tiles you marked with the small phone button.
+
+- Off until you turn it on; stops after 30 minutes without a request, or with **Putuskan**.
+- Every request needs the random token from the QR code; **Lupakan** makes a new one. Plain HTTP on the LAN, no cloud.
+- One phone, files up to 2 GB. The photo picker only offers JPEG/PNG, so iOS converts HEIC photos to JPEG itself.
+- Files from the phone are stored in `%LOCALAPPDATA%\IsleWin\Shelf\Ponsel` and show a blue dot.
+
 ## Credits and licence
 
 GPL-3.0-or-later. `pomodoro.rs` and `lrc.rs` are adapted from Isle (GPL-3.0-or-later);

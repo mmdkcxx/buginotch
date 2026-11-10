@@ -14,13 +14,15 @@ pub const REMOVE: f32 = 18.0;
 
 pub struct ShelfLayout {
     pub caption: Rect,
+    pub phone: Rect,
     pub clear: Rect,
     pub tiles: Rect,
 }
 
 pub fn layout(a: Rect) -> ShelfLayout {
     ShelfLayout {
-        caption: Rect { x: a.x, y: a.y, w: a.w - CLEAR_W - 8.0, h: HEADER_H },
+        caption: Rect { x: a.x, y: a.y, w: a.w - CLEAR_W * 2.0 - 16.0, h: HEADER_H },
+        phone: Rect { x: a.x + a.w - CLEAR_W * 2.0 - 8.0, y: a.y, w: CLEAR_W, h: HEADER_H },
         clear: Rect { x: a.x + a.w - CLEAR_W, y: a.y, w: CLEAR_W, h: HEADER_H },
         tiles: Rect { x: a.x, y: a.y + HEADER_H + 8.0, w: a.w, h: TILE_H },
     }
@@ -34,6 +36,11 @@ pub fn remove_rect(tile: Rect) -> Rect {
     Rect { x: tile.x + tile.w - REMOVE - 3.0, y: tile.y + 3.0, w: REMOVE, h: REMOVE }
 }
 
+/// The small "send to phone" button in a tile's top-left corner.
+pub fn send_rect(tile: Rect) -> Rect {
+    Rect { x: tile.x + 3.0, y: tile.y + 3.0, w: REMOVE, h: REMOVE }
+}
+
 /// How far the row can scroll sideways.
 pub fn max_scroll(l: &ShelfLayout, count: usize) -> f32 {
     let content = if count == 0 { 0.0 } else { count as f32 * (TILE_W + TILE_GAP) - TILE_GAP };
@@ -43,8 +50,10 @@ pub fn max_scroll(l: &ShelfLayout, count: usize) -> f32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShelfHit {
     Clear,
+    Phone,
     Tile(usize),
     Remove(usize),
+    Send(usize),
 }
 
 fn inside(r: Rect, x: f32, y: f32) -> bool {
@@ -56,12 +65,23 @@ pub fn hit(a: Rect, scroll: f32, count: usize, x: f32, y: f32) -> Option<ShelfHi
     if inside(l.clear, x, y) {
         return Some(ShelfHit::Clear);
     }
+    if inside(l.phone, x, y) {
+        return Some(ShelfHit::Phone);
+    }
     if !inside(l.tiles, x, y) {
         return None;
     }
     (0..count).find_map(|i| {
         let t = tile_rect(&l, i, scroll);
-        inside(t, x, y).then(|| if inside(remove_rect(t), x, y) { ShelfHit::Remove(i) } else { ShelfHit::Tile(i) })
+        inside(t, x, y).then(|| {
+            if inside(remove_rect(t), x, y) {
+                ShelfHit::Remove(i)
+            } else if inside(send_rect(t), x, y) {
+                ShelfHit::Send(i)
+            } else {
+                ShelfHit::Tile(i)
+            }
+        })
     })
 }
 
@@ -74,7 +94,7 @@ mod tests {
     #[test]
     fn everything_fits_inside_the_page_area() {
         let l = layout(A);
-        for r in [l.caption, l.clear, l.tiles] {
+        for r in [l.caption, l.phone, l.clear, l.tiles] {
             assert!(r.x >= A.x && r.x + r.w <= A.x + A.w + 0.01 && r.y >= A.y && r.y + r.h <= A.y + A.h + 0.01, "{r:?}");
         }
     }
@@ -95,6 +115,9 @@ mod tests {
         let r = remove_rect(t1);
         assert_eq!(hit(A, 0.0, 3, r.x + 2.0, r.y + 2.0), Some(ShelfHit::Remove(1)));
         assert_eq!(hit(A, 0.0, 3, l.clear.x + 5.0, l.clear.y + 5.0), Some(ShelfHit::Clear));
+        assert_eq!(hit(A, 0.0, 3, l.phone.x + 5.0, l.phone.y + 5.0), Some(ShelfHit::Phone));
+        let sd = send_rect(t1);
+        assert_eq!(hit(A, 0.0, 3, sd.x + 2.0, sd.y + 2.0), Some(ShelfHit::Send(1)));
         assert_eq!(hit(A, 0.0, 3, 300.0, 40.0), None);
         assert_eq!(hit(A, 0.0, 1, t1.x + 10.0, t1.y + 50.0), None, "no tile there");
     }

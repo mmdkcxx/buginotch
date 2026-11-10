@@ -16,6 +16,7 @@ pub mod module;
 pub mod music_layout;
 pub mod notifs;
 pub mod peek;
+pub mod phone;
 pub mod rest;
 pub mod pomodoro;
 pub mod settings;

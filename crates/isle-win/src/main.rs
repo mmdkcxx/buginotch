@@ -9,6 +9,7 @@ mod shell_win;
 mod lrclib;
 mod media_win;
 mod notif_win;
+mod phone;
 mod modules;
 mod power;
 mod renderer;
