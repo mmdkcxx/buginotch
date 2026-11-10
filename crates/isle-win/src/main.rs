@@ -6,6 +6,7 @@ mod backdrop;
 mod digioh;
 mod d2d_canvas;
 mod headphones_win;
+mod osd_win;
 mod input_win;
 mod shell_win;
 mod lrclib;

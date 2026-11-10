@@ -45,6 +45,10 @@ pub struct Settings {
     pub glass: bool,
     /// With `glass`: the light variant (milky white glass, dark text) instead of the dark one.
     pub glass_light: bool,
+    /// Show the volume / brightness bar in the pill when either changes.
+    pub osd: bool,
+    /// Try to hide Windows' own volume / brightness popup (experimental; needs `osd`).
+    pub hide_native_osd: bool,
     /// The order of the pages, by id, for example `["music", "timer", "usage"]`. Listed pages
     /// come in this order, in the places listed pages occupy now; the rest keep their order.
     /// Ids: music, timer, todo, clipboard, shelf, water, widgets, notifications, digioh, usage, update.
@@ -65,7 +69,7 @@ fn default_clocks() -> Vec<WorldClock> {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 120.0, pill_height: 30.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 900, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/buginotch".to_string(), update_token: String::new(), last_version: String::new(), glass: true, glass_light: true, page_order: default_page_order() }
+        Self { autostart: false, monitor: 0, pill_width: 120.0, pill_height: 30.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 900, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/buginotch".to_string(), update_token: String::new(), last_version: String::new(), glass: true, glass_light: true, osd: true, hide_native_osd: false, page_order: default_page_order() }
     }
 }
 

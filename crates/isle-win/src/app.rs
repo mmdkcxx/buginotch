@@ -9,6 +9,7 @@ use isle_logic::notifs::scroll_offset;
 use isle_logic::chrome::{ChromeAction, chrome_hit};
 use isle_logic::headphones::{Level, battery_anim, level_of};
 use isle_logic::module::{Event, PillBattery, PillCard, PillItem, Reaction};
+use isle_logic::osd::{self, OsdKind, PillOsd};
 use isle_logic::equaliser;
 use isle_logic::rest;
 use isle_logic::track_card::{self, CARD_H, CARD_RADIUS, CARD_W};
@@ -130,6 +131,11 @@ impl App {
         }
     }
 
+    /// The volume / brightness bar to show now, unless the user turned it off.
+    fn osd_now(&self) -> Option<PillOsd> {
+        if self.settings.osd { self.registry.pill_osd(epoch_ms()) } else { None }
+    }
+
     /// Width, height and radius of the pill at rest: the "new song" card while it shows.
     fn closed_now(&self) -> (f32, f32, f32) {
         if self.card {
@@ -229,6 +235,9 @@ impl App {
         self.settings.pill_height = s.pill_height;
         self.settings.rest_after_secs = s.rest_after_secs;
         self.settings.auto_update = s.auto_update;
+        self.settings.osd = s.osd;
+        self.settings.hide_native_osd = s.hide_native_osd;
+        crate::osd_win::set_hide_native(s.osd && s.hide_native_osd);
         self.settings.update_check_hours = s.update_check_hours;
         self.settings.update_repo = s.update_repo;
         self.settings.update_token = s.update_token;
@@ -267,7 +276,8 @@ impl App {
         // Room for the text between the cover (left) and the equaliser (right).
         let chars = text.chars().count();
         let battery = self.registry.pill_battery(epoch_ms());
-        let text_w = if chars > 6 || battery.is_some() { (chars as f32 * 7.4 + 72.0).min(PILL_MAX_TEXT_W) + if battery.is_some() { 62.0 } else { 0.0 } } else { 0.0 };
+        let osd = self.osd_now();
+        let text_w = if osd.is_some() { OSD_W } else if chars > 6 || battery.is_some() { (chars as f32 * 7.4 + 72.0).min(PILL_MAX_TEXT_W) + if battery.is_some() { 62.0 } else { 0.0 } } else { 0.0 };
         if text_changed {
             self.pill_since = epoch_ms();
         }
@@ -293,7 +303,7 @@ impl App {
         }
         let resized = self.sync_lyrics();
         let t = local_time();
-        self.rest_ok = !self.open && !self.inside && !self.card && battery.is_none()
+        self.rest_ok = !self.open && !self.inside && !self.card && battery.is_none() && osd.is_none()
             && self.last_pill == format_clock(t.hour, t.minute)
             && !self.registry.pill_items().iter().any(|i| matches!(i, PillItem::Equaliser { active: true }));
         if !self.rest_ok {
@@ -536,7 +546,10 @@ impl App {
                     }
                 }
             }
-            if a_text > 0 {
+            let osd_now = self.osd_now();
+            if let (Some(o), true) = (osd_now, a > 0) {
+                draw_osd(c, x, w, base_h, o, a);
+            } else if a_text > 0 {
                 let (text, accent) = self.registry.pill_text(&clock);
                 let color = if accent { Color(52, 211, 153, a_text) } else { Color(245, 246, 248, a_text) };
                 let room = Rect { x: x + 30.0, y: 0.0, w: (w - 60.0).max(1.0), h: base_h };
@@ -705,6 +718,68 @@ impl App {
 
 /// The closed pill grows for a long peek only up to this width; beyond it the text scrolls.
 const PILL_MAX_TEXT_W: f32 = 330.0;
+
+/// Width of the closed pill while the volume / brightness bar shows.
+const OSD_W: f32 = 236.0;
+
+/// The pill's volume / brightness bar: icon on the left, the bar, then the number.
+fn draw_osd(c: &mut dyn Canvas, x: f32, w: f32, pill_h: f32, o: PillOsd, a: u8) {
+    let alpha = (a as f32 * o.alpha) as u8;
+    let (tint, dim) = match (o.kind, o.muted) {
+        (_, true) => ((139, 144, 153), (60, 64, 71)),
+        (OsdKind::Volume, false) => ((245, 246, 248), (70, 74, 82)),
+        (OsdKind::Brightness, false) => ((255, 211, 107), (70, 74, 82)),
+    };
+    let col = |t: (u8, u8, u8), al: u8| Color(t.0, t.1, t.2, al);
+    let cy = pill_h / 2.0;
+    let (ix, iy) = (x + 14.0, cy - 8.0);
+    let ic = col(tint, alpha);
+    match o.kind {
+        OsdKind::Volume => {
+            let p = |px: f32, py: f32| (ix + px, iy + py);
+            c.fill_polygon(&[p(0.0, 5.5), p(3.5, 5.5), p(8.0, 1.5), p(8.0, 14.5), p(3.5, 10.5), p(0.0, 10.5)], ic);
+            if o.muted || o.level <= 0.0 {
+                let (x0, y0) = p(10.5, 5.5);
+                osd_line(c, x0, y0, x0 + 5.0, y0 + 5.0, 1.6, ic);
+                osd_line(c, x0 + 5.0, y0, x0, y0 + 5.0, 1.6, ic);
+            } else {
+                let on = osd::waves(o.level, false);
+                for (i, r) in [3.6f32, 6.4, 9.2].into_iter().enumerate() {
+                    let al = if (i as u8) < on { alpha } else { (alpha as f32 * 0.22) as u8 };
+                    c.stroke_arc(ix + 7.0, iy + 8.0, r, -42.0, 84.0, 1.5, col(tint, al));
+                }
+            }
+        }
+        OsdKind::Brightness => {
+            let (cx, cyy) = (ix + 8.0, iy + 8.0);
+            let k = 0.55 + 0.45 * o.level;
+            c.fill_circle(cx, cyy, 3.0 + 0.9 * k, ic);
+            for i in 0..8 {
+                let ang = i as f32 * std::f32::consts::FRAC_PI_4;
+                let (s, co) = ang.sin_cos();
+                let (r0, r1) = (5.6 + 0.4 * k, 6.4 + 1.8 * k);
+                osd_line(c, cx + co * r0, cyy + s * r0, cx + co * r1, cyy + s * r1, 1.5, col(tint, (alpha as f32 * (0.4 + 0.6 * o.level)) as u8));
+            }
+        }
+    }
+    let pct = format!("{}", if o.muted { 0 } else { (o.level * 100.0).round() as u32 });
+    let num = Rect { x: x + w - 14.0 - 30.0, y: 0.0, w: 30.0, h: pill_h };
+    c.draw_text(&pct, num, 12.0, 600, Color(245, 246, 248, alpha), Align::Right);
+    let bar = Rect { x: ix + 16.0 + 12.0, y: cy - 2.0, w: (num.x - 10.0) - (ix + 28.0), h: 4.0 };
+    c.fill_round_rect(bar, 2.0, col(dim, alpha));
+    let fill = if o.muted { 0.0 } else { o.level };
+    if fill > 0.0 {
+        c.fill_round_rect(Rect { w: (bar.w * fill).max(4.0), ..bar }, 2.0, ic);
+    }
+}
+
+/// A straight line of the given width, as a quad.
+fn osd_line(c: &mut dyn Canvas, x0: f32, y0: f32, x1: f32, y1: f32, width: f32, col: Color) {
+    let (dx, dy) = (x1 - x0, y1 - y0);
+    let len = (dx * dx + dy * dy).sqrt().max(0.001);
+    let (nx, ny) = (-dy / len * width / 2.0, dx / len * width / 2.0);
+    c.fill_polygon(&[(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)], col);
+}
 
 fn closed_dims(settings: &Settings, wide: bool) -> (f32, f32, f32) {
     let w = if wide { settings.pill_width + 44.0 } else { settings.pill_width };

@@ -80,9 +80,12 @@ impl Window {
             let lead = APP.with(|a| a.borrow().as_ref().map_or(500, |app| app.settings.lyrics_lead_ms));
             let watcher = crate::media_win::MediaWatcher::spawn(hwnd);
             let headphones = crate::headphones_win::HeadphoneWatcher::spawn(hwnd);
+            let osd = crate::osd_win::OsdWatcher::spawn(hwnd);
+            crate::osd_win::set_hide_native(settings_hide_native());
             APP.with(|a| {
                 if let Some(app) = a.borrow_mut().as_mut() {
                     app.registry.add(Box::new(crate::modules::headphones::HeadphonesModule::new(headphones)));
+                    app.registry.add(Box::new(crate::modules::osd::OsdModule::new(osd)));
                     app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher, hwnd.0 as isize, lead)));
                     let order = app.settings.page_order.clone();
                     app.registry.reorder(&order);
@@ -945,4 +948,10 @@ pub fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether the saved settings ask for Windows' own volume popup to be hidden.
+fn settings_hide_native() -> bool {
+    let s = crate::settings_io::load();
+    s.osd && s.hide_native_osd
 }

@@ -62,6 +62,8 @@ pub enum Key {
     AutoBreaks,
     AutoFocus,
     AutoUpdate,
+    Osd,
+    HideNativeOsd,
     Hours,
     Repo,
     Token,
@@ -205,6 +207,8 @@ impl SettingsView {
         s.pomodoro = v.pomodoro.clone();
         s.world_clocks = v.world_clocks.clone();
         s.auto_update = v.auto_update;
+        s.osd = v.osd;
+        s.hide_native_osd = v.hide_native_osd;
         s.update_check_hours = v.update_check_hours;
         s.update_repo = v.update_repo.clone();
         s.update_token = v.update_token.clone();
@@ -259,6 +263,8 @@ impl SettingsView {
             Key::AutoBreaks => s.pomodoro.auto_start_breaks,
             Key::AutoFocus => s.pomodoro.auto_start_focus,
             Key::AutoUpdate => s.auto_update,
+            Key::Osd => s.osd,
+            Key::HideNativeOsd => s.hide_native_osd,
             _ => false,
         }
     }
@@ -270,6 +276,8 @@ impl SettingsView {
             Key::AutoBreaks => s.pomodoro.auto_start_breaks = v,
             Key::AutoFocus => s.pomodoro.auto_start_focus = v,
             Key::AutoUpdate => s.auto_update = v,
+            Key::Osd => s.osd = v,
+            Key::HideNativeOsd => s.hide_native_osd = v,
             _ => {}
         }
     }
@@ -401,6 +409,8 @@ impl SettingsView {
             Section::Umum => {
                 y = self.group(&mut cx, y, &[
                     Row { name: "Mulai dengan Windows", desc: "Buginotch menyala setelah masuk ke Windows.", key: "autostart", ctl: RowCtl::Toggle(Key::Autostart) },
+                    Row { name: "Bar volume dan kecerlangan", desc: "Notch menampilkan bar saat volume atau kecerlangan berubah.", key: "osd", ctl: RowCtl::Toggle(Key::Osd) },
+                    Row { name: "Sembunyikan popup bawaan Windows", desc: "Eksperimental. Mungkin tidak berfungsi di semua versi Windows.", key: "hide_native_osd", ctl: RowCtl::Toggle(Key::HideNativeOsd) },
                     Row { name: "Mata berkedip saat diam", desc: "Detik tanpa aktivitas sebelum jam berganti mata. 0 mematikannya.", key: "rest_after_secs", ctl: RowCtl::Slider(Key::RestAfter, 0.0, 300.0, 5.0, "dtk") },
                 ]);
             }

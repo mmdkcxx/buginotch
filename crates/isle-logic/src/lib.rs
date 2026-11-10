@@ -19,6 +19,7 @@ pub mod media;
 pub mod module;
 pub mod music_layout;
 pub mod notifs;
+pub mod osd;
 pub mod peek;
 pub mod phone;
 pub mod rest;

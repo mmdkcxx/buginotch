@@ -10,6 +10,7 @@ pub mod usage;
 pub mod headphones;
 pub mod music;
 pub mod notifications;
+pub mod osd;
 pub mod timer;
 pub mod water;
 pub mod widgets;

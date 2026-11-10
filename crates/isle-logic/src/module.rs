@@ -97,6 +97,10 @@ pub trait Module {
     fn pill_battery(&self, _now_ms: i64) -> Option<PillBattery> {
         None
     }
+    /// A volume or brightness bar the closed pill should show right now, if any.
+    fn pill_osd(&self, _now_ms: i64) -> Option<crate::osd::PillOsd> {
+        None
+    }
     fn pill_priority(&self) -> u8 {
         0
     }
@@ -337,6 +341,10 @@ impl Registry {
 
     pub fn pill_battery(&self, now_ms: i64) -> Option<PillBattery> {
         self.modules.iter().find_map(|m| m.pill_battery(now_ms))
+    }
+
+    pub fn pill_osd(&self, now_ms: i64) -> Option<crate::osd::PillOsd> {
+        self.modules.iter().find_map(|m| m.pill_osd(now_ms))
     }
 
     pub fn any_wide_pill(&self) -> bool {
