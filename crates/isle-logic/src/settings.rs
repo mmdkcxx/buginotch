@@ -65,7 +65,7 @@ fn default_clocks() -> Vec<WorldClock> {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 120.0, pill_height: 30.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 900, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/islenotch-winver".to_string(), update_token: String::new(), last_version: String::new(), glass: true, glass_light: true, page_order: default_page_order() }
+        Self { autostart: false, monitor: 0, pill_width: 120.0, pill_height: 30.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 900, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/buginotch".to_string(), update_token: String::new(), last_version: String::new(), glass: true, glass_light: true, page_order: default_page_order() }
     }
 }
 
@@ -113,7 +113,7 @@ mod tests {
     fn updates_default_to_on_every_six_hours_for_this_repo_and_can_be_set() {
         let d = Settings::default();
         assert!(d.auto_update && d.update_check_hours == 6 && d.update_token.is_empty());
-        assert_eq!(d.update_repo, "mmdkcxx/islenotch-winver");
+        assert_eq!(d.update_repo, "mmdkcxx/buginotch");
         let s = Settings::from_toml("auto_update = false\nupdate_check_hours = 12\nupdate_token = \"abc\"");
         assert!(!s.auto_update);
         assert_eq!((s.update_check_hours, s.update_token.as_str()), (12, "abc"));

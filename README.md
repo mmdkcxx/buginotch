@@ -44,7 +44,7 @@ Settings in `%APPDATA%\IsleWin\settings.toml`:
 ```toml
 auto_update = true
 update_check_hours = 6
-update_repo = "mmdkcxx/islenotch-winver"
+update_repo = "mmdkcxx/buginotch"
 update_token = ""   # read-only GitHub token, only needed while the repository is private
 ```
 
