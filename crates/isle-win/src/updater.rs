@@ -48,6 +48,12 @@ static TX: OnceLock<Mutex<Sender<Cmd>>> = OnceLock::new();
 static INSTALL_ON_EXIT: Mutex<Option<PathBuf>> = Mutex::new(None);
 static START: Once = Once::new();
 
+/// Whether the Pembaruan page has something to show: an update found, being downloaded, ready to
+/// install, or a failure. Otherwise the page stays hidden.
+pub fn page_wanted() -> bool {
+    matches!(*STATE.lock().unwrap_or_else(|e| e.into_inner()), State::Available(_) | State::Downloading { .. } | State::Ready { .. } | State::Failed { .. })
+}
+
 /// The version this build is.
 pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

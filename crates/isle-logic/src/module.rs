@@ -250,9 +250,19 @@ impl Registry {
     }
 
     pub fn poll_all(&mut self, now_ms: i64) -> bool {
+        // Pages can appear and disappear while polling (the update page); keep showing the same
+        // page rather than whatever slid into its place.
+        let before = self.current_page_id();
         let mut changed = false;
         for m in &mut self.modules {
             changed |= m.poll(now_ms);
+        }
+        let indices = self.page_indices();
+        let kept = before.and_then(|id| indices.iter().position(|&i| self.modules[i].id() == id));
+        let now = kept.unwrap_or_else(|| self.current.min(indices.len().saturating_sub(1)));
+        if now != self.current {
+            self.current = now;
+            changed = true;
         }
         changed
     }
@@ -340,10 +350,11 @@ mod tests {
         priority: u8,
         wake: Option<i64>,
         page: bool,
+        appears_on_poll: bool,
     }
     impl Fake {
         fn new(id: &'static str) -> Self {
-            Self { id, center: None, priority: 0, wake: None, page: true }
+            Self { id, center: None, priority: 0, wake: None, page: true, appears_on_poll: false }
         }
     }
     impl Module for Fake {
@@ -353,9 +364,27 @@ mod tests {
         fn pill_center(&self) -> Option<String> { self.center.clone() }
         fn pill_priority(&self) -> u8 { self.priority }
         fn has_page(&self) -> bool { self.page }
+        fn poll(&mut self, _now: i64) -> bool {
+            let was = self.page;
+            self.page |= self.appears_on_poll;
+            was != self.page
+        }
         fn draw_panel(&mut self, _c: &mut dyn Canvas, _a: Rect, _now: i64) {}
         fn on_event(&mut self, _e: &Event, _a: Rect, _now: i64) -> Reaction { Reaction::None }
         fn next_wake_ms(&self, _now: i64) -> Option<i64> { self.wake }
+    }
+
+    #[test]
+    fn a_page_appearing_before_the_current_one_does_not_change_what_is_shown() {
+        let mut r = Registry::new();
+        r.add(Box::new(Fake::new("a")));
+        r.add(Box::new(Fake { page: false, appears_on_poll: true, ..Fake::new("u") }));
+        r.add(Box::new(Fake::new("b")));
+        r.set_page(1);
+        assert_eq!(r.current_page_id(), Some("b"));
+        r.poll_all(0);
+        assert_eq!(r.page_count(), 3);
+        assert_eq!(r.current_page_id(), Some("b"));
     }
 
     #[test]

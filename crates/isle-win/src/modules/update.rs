@@ -48,6 +48,7 @@ pub struct UpdateModule {
     announced: Option<String>,
     /// "Nanti": the page shows a one-line reminder until the user taps Lihat.
     snoozed: bool,
+    was_checking: bool,
     buttons: [Button; 3],
     shown: Option<(String, i64)>,
     last_draw_ms: i64,
@@ -66,6 +67,7 @@ impl UpdateModule {
             seen_changes: 0,
             announced: None,
             snoozed: false,
+            was_checking: false,
             buttons: [Button::new(BLUE), Button::new(BLUE), Button::new(BLUE)],
             shown: None,
             last_draw_ms: i64::MIN / 2,
@@ -159,7 +161,18 @@ impl Module for UpdateModule {
         self.peek.current(epoch_ms()).is_some()
     }
 
+    fn has_page(&self) -> bool {
+        updater::page_wanted()
+    }
+
     fn poll(&mut self, now_ms: i64) -> bool {
+        // A check the user asked for that finds nothing has no page to show, so say it in the pill.
+        let checking = matches!(updater::state(), State::Checking);
+        if self.was_checking && !checking && matches!(updater::state(), State::UpToDate { .. }) {
+            self.peek_tile = ('✓', (52, 211, 153));
+            self.peek.show("IsleWin sudah terbaru".to_string(), now_ms, PEEK_MS);
+        }
+        self.was_checking = checking;
         let before = self.peek.current(now_ms).is_some();
         let n = updater::changes();
         let mut changed = n != self.seen_changes;
