@@ -56,6 +56,8 @@ pub struct App {
     last_pill: String,
     /// A page slide in progress: (page we are leaving, direction, start epoch ms).
     trans: Option<(usize, f32, i64)>,
+    /// Mouse-wheel page turning: when the last turn happened (a flick turns one page, not five).
+    wheel_turned_ms: i64,
     /// The pill is currently grown into the "new song" card.
     card: bool,
     /// Width the closed pill needs for a long centre text (a peek); 0 when the usual width does.
@@ -117,6 +119,7 @@ impl App {
             last: None,
             last_pill: String::new(),
             trans: None,
+            wheel_turned_ms: 0,
             card: false,
             text_w: 0.0,
             pill_since: 0,
@@ -384,6 +387,30 @@ impl App {
             Some(page) => page.on_event(e, body, now),
             None => Reaction::None,
         }
+    }
+
+    /// Mouse wheel over the notch: the page gets it first (lists scroll); otherwise it turns the
+    /// page (wheel down = next). One turn per 280 ms so a trackpad flick moves a single page.
+    pub fn wheel(&mut self, steps: f32) -> bool {
+        if !self.open || steps == 0.0 {
+            return false;
+        }
+        if self.page_event(&Event::PointerWheel(steps)) {
+            return true;
+        }
+        let now = epoch_ms();
+        if now - self.wheel_turned_ms < 280 {
+            return false;
+        }
+        let before = self.registry.current();
+        let dir = if steps < 0.0 { 1 } else { -1 };
+        self.registry.go(dir);
+        if self.registry.current() == before {
+            return false;
+        }
+        self.wheel_turned_ms = now;
+        self.trans = Some((before, dir as f32, now));
+        true
     }
 
     /// Handles a left click; coordinates are DIPs relative to the notch's top-left.

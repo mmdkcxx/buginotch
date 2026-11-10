@@ -271,7 +271,11 @@ impl Module for TodoModule {
             }
             Event::PointerWheel(steps) => {
                 let l = layout(area, self.adding);
-                self.scroll = (self.scroll - steps * (ROW_H + ROW_GAP)).clamp(0.0, max_scroll(&l, self.list.tasks().len()));
+                let max = max_scroll(&l, self.list.tasks().len());
+                if max <= 0.0 {
+                    return Reaction::None; // nothing to scroll: the wheel turns the page instead
+                }
+                self.scroll = (self.scroll - steps * (ROW_H + ROW_GAP)).clamp(0.0, max);
                 Reaction::Redraw
             }
             _ if !self.adding => Reaction::None,

@@ -624,7 +624,11 @@ impl Module for ShelfModule {
             }
             Event::PointerWheel(steps) => {
                 let l = layout(area);
-                self.scroll = (self.scroll - steps * (TILE_W + 8.0)).clamp(0.0, max_scroll(&l, n + p));
+                let max = max_scroll(&l, n + p);
+                if max <= 0.0 {
+                    return Reaction::None; // nothing to scroll: the wheel turns the page instead
+                }
+                self.scroll = (self.scroll - steps * (TILE_W + 8.0)).clamp(0.0, max);
                 Reaction::Redraw
             }
             _ => Reaction::None,

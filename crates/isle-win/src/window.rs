@@ -853,7 +853,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_MOUSEWHEEL => {
             let steps = ((wparam.0 >> 16) as i16) as f32 / 120.0;
-            let redraw = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.page_event(&Event::PointerWheel(steps))));
+            let redraw = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.wheel(steps)));
             if redraw {
                 draw(hwnd);
             }
