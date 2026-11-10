@@ -71,7 +71,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(mut settings: Settings) -> Self {
+        if std::env::var_os("ISLE_GLASS").is_some_and(|v| v == "1") {
+            settings.glass = true;
+        }
         let (w, h, r) = closed_dims(&settings, false);
         let mut registry = Registry::new();
         registry.add(Box::new(ClockModule));
@@ -165,6 +168,15 @@ impl App {
         let (tw, th) = self.window_dims(self.window_big);
         // Never smaller than the shape as drawn, so a shrinking card is not cropped.
         (tw.max(self.w.value.ceil() + 1.0), th.max(self.h.value.ceil() + 1.0))
+    }
+
+    /// The shape to blur behind (width, height, corner radius in DIPs), when the glass look is on.
+    pub fn blur_shape(&self) -> Option<(f32, f32, f32)> {
+        self.settings.glass.then(|| self.dims())
+    }
+
+    pub fn set_glass(&mut self, on: bool) {
+        self.settings.glass = on;
     }
 
     pub fn is_open(&self) -> bool {
@@ -381,7 +393,21 @@ impl App {
         self.step_equaliser();
         let (w, h, r) = self.dims();
         let x = ((win_w - w) / 2.0).max(0.0);
-        c.fill_round_rect(Rect { x, y: -r, w, h: h + r }, r, Color(0, 0, 0, 255));
+        let shape = Rect { x, y: -r, w, h: h + r };
+        if self.settings.glass {
+            // Frosted glass: a dark see-through tint over the blur the window asks the system for,
+            // a faint sheen that fades down the shape, and thin lit edges.
+            let tint = Color(16, 18, 24, 150);
+            c.fill_round_rect(shape, r, tint);
+            c.push_clip(shape, r);
+            c.fill_round_rect(Rect { h: (h * 0.5).max(1.0), ..shape }, 0.0, Color(255, 255, 255, 14));
+            c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, 40));
+            c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 34));
+            c.fill_round_rect(Rect { x: x + w - 1.0, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 34));
+            c.pop_clip();
+        } else {
+            c.fill_round_rect(shape, r, Color(0, 0, 0, 255));
+        }
 
         // Progress of the open/close from the height, which does not change when the lyrics
         // column widens the open panel (a width-based value jumped and flashed the pill).

@@ -15,6 +15,7 @@ pub const ID_AUTOSTART: usize = 1001;
 pub const ID_QUIT: usize = 1002;
 pub const ID_UPDATE: usize = 1003;
 pub const ID_AUTOUPDATE: usize = 1004;
+pub const ID_GLASS: usize = 1005;
 const TRAY_UID: u32 = 1;
 
 pub struct Tray {
@@ -57,7 +58,9 @@ pub fn show_menu(hwnd: HWND) {
         let check = if is_autostart() { MF_CHECKED } else { MF_UNCHECKED };
         let auto_update = if crate::settings_io::load().auto_update { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(menu, MF_STRING, ID_UPDATE, w!("Periksa pembaruan…"));
+        let glass = if crate::settings_io::load().glass { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(menu, MF_STRING | auto_update, ID_AUTOUPDATE, w!("Perbarui otomatis"));
+        let _ = AppendMenuW(menu, MF_STRING | glass, ID_GLASS, w!("Notch kaca (blur)"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         let _ = AppendMenuW(menu, MF_STRING | check, ID_AUTOSTART, w!("Mulai dengan Windows"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);

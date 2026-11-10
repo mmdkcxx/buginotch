@@ -3,7 +3,7 @@
 
 use crate::app::App;
 use crate::renderer::Renderer;
-use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
+use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_GLASS, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
 use isle_logic::module::Event;
 use std::cell::RefCell;
@@ -135,6 +135,10 @@ fn place_window(hwnd: HWND) {
 /// Limits the window to the notch's current footprint (the open panel or the closed pill)
 /// with a window region, so the transparent rest neither shows nor takes mouse input.
 fn apply_window_size(hwnd: HWND) {
+    // In glass mode the window is cut to the shape itself (apply_blur).
+    if BLUR.get().is_some() {
+        return;
+    }
     let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.region_dims()).unwrap_or((96.0, 26.0)));
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
@@ -303,11 +307,86 @@ fn draw(hwnd: HWND) {
             }
         });
     });
+    apply_blur(hwnd, s);
     if lost {
         crate::log("graphics device lost; rebuilding renderer");
         let (bw, bh) = buffer_px(s);
         if let Ok(r) = Renderer::new(hwnd, bw, bh, 96.0 * s) {
             RENDERER.with(|c| *c.borrow_mut() = Some(r));
+        }
+    }
+}
+
+thread_local! {
+    /// The glass shape last given to the system (left, width, height, radius in pixels); None = off.
+    static BLUR: std::cell::Cell<Option<(i32, i32, i32, i32)>> = const { std::cell::Cell::new(None) };
+}
+
+#[repr(C)]
+struct AccentPolicy {
+    state: u32,
+    flags: u32,
+    color: u32,
+    animation: u32,
+}
+
+#[repr(C)]
+struct CompositionAttribute {
+    attribute: u32,
+    data: *mut std::ffi::c_void,
+    size: usize,
+}
+
+/// Asks the system to blur what is behind the window (an undocumented but long-standing call,
+/// the one Windows' own acrylic surfaces use). `state` 0 turns it off, 3 is plain blur.
+fn set_backdrop_blur(hwnd: HWND, state: u32) {
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    unsafe {
+        let Ok(user32) = GetModuleHandleW(w!("user32.dll")) else { return };
+        let Some(f) = GetProcAddress(user32, s!("SetWindowCompositionAttribute")) else { return };
+        let f: unsafe extern "system" fn(HWND, *mut CompositionAttribute) -> BOOL = std::mem::transmute(f);
+        let mut policy = AccentPolicy { state, flags: 0, color: 0, animation: 0 };
+        let mut data = CompositionAttribute { attribute: 19, data: &mut policy as *mut _ as *mut std::ffi::c_void, size: std::mem::size_of::<AccentPolicy>() };
+        f(hwnd, &mut data);
+    }
+}
+
+/// Glass look: the window is cut to the notch's exact rounded shape each frame and the system
+/// blurs what is behind it. Switching it off hands the window back to the plain footprint.
+/// Called every frame; unchanged shapes are skipped.
+fn apply_blur(hwnd: HWND, s: f32) {
+    let shape = APP.with(|a| a.borrow().as_ref().and_then(|app| app.blur_shape()));
+    let key = shape.map(|(w, h, r)| (0, (w * s).round() as i32, (h * s).round() as i32, (r * s).round() as i32));
+    let before = BLUR.replace(key);
+    if before == key {
+        return;
+    }
+    unsafe {
+        match key {
+            Some((_, w_px, h_px, r_px)) => {
+                if before.is_none() {
+                    set_backdrop_blur(hwnd, 3);
+                }
+                // The blur fills the whole window, so the window itself is made exactly as big as
+                // the notch: it follows the shape frame by frame. Its content is drawn centred.
+                let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+                let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+                if GetMonitorInfoW(monitor, &mut info).as_bool() {
+                    let m = info.rcMonitor;
+                    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), m.left + notch_x(m.right - m.left, w_px), m.top, w_px, h_px, SWP_NOACTIVATE);
+                }
+                // The top corners sit above the window, so only the bottom ones show as round.
+                let rgn = CreateRoundRectRgn(0, -r_px, w_px + 1, h_px + 1, r_px * 2, r_px * 2);
+                if SetWindowRgn(hwnd, Some(rgn), true) == 0 {
+                    let _ = DeleteObject(rgn.into());
+                }
+            }
+            None => {
+                set_backdrop_blur(hwnd, 0);
+                place_window(hwnd);
+                REGION.set((-1, -1, -1));
+                apply_window_size(hwnd);
+            }
         }
     }
 }
@@ -542,6 +621,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     save_settings();
                 }
                 ID_UPDATE => crate::updater::check_now(),
+                ID_GLASS => {
+                    let on = !crate::settings_io::load().glass;
+                    crate::settings_io::update(|s| s.glass = on);
+                    APP.with(|a| {
+                        if let Some(app) = a.borrow_mut().as_mut() {
+                            app.set_glass(on);
+                        }
+                    });
+                    draw(hwnd);
+                }
                 ID_AUTOUPDATE => crate::settings_io::update(|s| s.auto_update = !s.auto_update),
                 ID_QUIT => unsafe {
                     let _ = DestroyWindow(hwnd);

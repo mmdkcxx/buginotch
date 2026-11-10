@@ -41,6 +41,8 @@ pub struct Settings {
     pub update_token: String,
     /// The version that ran last, to say "Diperbarui ke ..." once after an update.
     pub last_version: String,
+    /// Frosted-glass notch (blurred, see-through) instead of solid black.
+    pub glass: bool,
 }
 
 fn default_clocks() -> Vec<WorldClock> {
@@ -52,7 +54,7 @@ fn default_clocks() -> Vec<WorldClock> {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/islenotch-winver".to_string(), update_token: String::new(), last_version: String::new() }
+        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/islenotch-winver".to_string(), update_token: String::new(), last_version: String::new(), glass: false }
     }
 }
 
