@@ -13,13 +13,15 @@ use windows::{
         Media::Audio::{Endpoints::IAudioEndpointVolume, *},
         Storage::FileSystem::*,
         System::{Com::*, IO::DeviceIoControl, Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS}},
-        UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible, PostMessageW, SW_HIDE, ShowWindow},
+        UI::WindowsAndMessaging::{FindWindowExW, IsIconic, IsWindowVisible, PostMessageW, SW_MINIMIZE, ShowWindow},
     },
-    core::w,
+    core::{PCWSTR, w},
 };
 
 /// How often the system is asked. Two cheap calls; a key press shows within this long.
-const POLL: Duration = Duration::from_millis(125);
+const POLL: Duration = Duration::from_millis(40);
+/// Readings are taken every this many ticks (about 120 ms); the popup check runs every tick.
+const READ_EVERY: u32 = 3;
 /// The default output can change (headphones plugged in); look it up again this often.
 const REFRESH_EVERY: u32 = 16;
 /// `IOCTL_VIDEO_QUERY_DISPLAY_BRIGHTNESS`
@@ -32,14 +34,21 @@ pub fn set_hide_native(on: bool) {
     HIDE_NATIVE.store(on, Ordering::Relaxed);
 }
 
-/// The popup lives in a window of class `NativeHWNDHost` that the shell shows on each key
-/// press. Hiding it right after it appears is the only known way; newer Windows builds may
-/// host it elsewhere, in which case this finds nothing and does no harm.
+/// Windows' own volume / brightness popup is a shell window the system shows on each key
+/// press: `NativeHWNDHost` on Windows 10, an untitled `XamlExplorerHostIslandWindow` (with a
+/// `DesktopWindowContentBridge` inside) on Windows 11. Minimizing it when it appears hides
+/// the popup, the same way the HideVolumeOSD tool does. Finds nothing, and does nothing,
+/// where Windows hosts it differently.
 fn hide_native_popup() {
     unsafe {
-        if let Ok(w) = FindWindowW(w!("NativeHWNDHost"), None) {
-            if IsWindowVisible(w).as_bool() {
-                let _ = ShowWindow(w, SW_HIDE);
+        for (class, inner) in [(w!("NativeHWNDHost"), w!("DirectUIHWND")), (w!("XamlExplorerHostIslandWindow"), w!("Windows.UI.Composition.DesktopWindowContentBridge"))] {
+            let mut prev: Option<HWND> = None;
+            while let Ok(h) = FindWindowExW(None, prev, class, w!("")) {
+                prev = Some(h);
+                let is_osd_host = FindWindowExW(Some(h), None, inner, PCWSTR::null()).is_ok();
+                if is_osd_host && IsWindowVisible(h).as_bool() && !IsIconic(h).as_bool() {
+                    let _ = ShowWindow(h, SW_MINIMIZE);
+                }
             }
         }
     }
@@ -61,23 +70,27 @@ impl OsdWatcher {
             let mut tick = 0u32;
             let mut prev: Option<Reading> = None;
             loop {
-                if endpoint.is_none() || tick % REFRESH_EVERY == 0 {
-                    endpoint = default_endpoint();
-                }
-                tick = tick.wrapping_add(1);
-                let now = Reading { volume: endpoint.as_ref().and_then(read_volume), brightness: read_brightness() };
-                if prev != Some(now) {
-                    *slot.lock().unwrap() = now;
-                    // The very first reading is only a baseline; waking the UI for it is harmless.
-                    unsafe {
-                        let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_APP_MEDIA, WPARAM(0), LPARAM(0));
-                    }
-                    prev = Some(now);
-                }
                 if HIDE_NATIVE.load(Ordering::Relaxed) {
                     hide_native_popup();
                 }
-                std::thread::sleep(POLL);
+                let hiding = HIDE_NATIVE.load(Ordering::Relaxed);
+                if !hiding || tick % READ_EVERY == 0 {
+                    if endpoint.is_none() || tick % (READ_EVERY * REFRESH_EVERY) == 0 {
+                        endpoint = default_endpoint();
+                    }
+                    let now = Reading { volume: endpoint.as_ref().and_then(read_volume), brightness: read_brightness() };
+                    if prev != Some(now) {
+                        *slot.lock().unwrap() = now;
+                        // The very first reading is only a baseline; waking the UI for it is harmless.
+                        unsafe {
+                            let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_APP_MEDIA, WPARAM(0), LPARAM(0));
+                        }
+                        prev = Some(now);
+                    }
+                }
+                tick = tick.wrapping_add(1);
+                // Watching for the popup needs a quick beat; otherwise a relaxed one is enough.
+                std::thread::sleep(if hiding { POLL } else { POLL * READ_EVERY });
             }
         });
         watcher
