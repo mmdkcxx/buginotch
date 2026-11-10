@@ -162,8 +162,34 @@ fn spawn_installer(path: &std::path::Path) -> bool {
 }
 
 /// Starts the worker (once): first check shortly after start, then every `update_check_hours`.
+/// For looking at the Pembaruan page without a real release: `ISLE_FAKE_UPDATE` set to
+/// available, downloading, ready or failed shows that state and stops automatic checks.
+fn fake_state() -> Option<State> {
+    let which = std::env::var("ISLE_FAKE_UPDATE").ok()?;
+    let release = Release {
+        version: "0.3.6".into(),
+        notes: ["feat: Kaca gelap dan terang di menu tray", "feat: Widget pemakaian Claude", "fix: Sudut notch kaca lebih rapi", "Halaman Pembaruan tersembunyi saat tidak perlu", "Urutan widget bisa diatur"].map(String::from).to_vec(),
+        asset_name: "IsleWin-Setup-0.3.6.exe".into(),
+        asset_url: String::new(),
+        size: 12_400_000,
+        sha256: None,
+        sha_asset_url: None,
+    };
+    Some(match which.as_str() {
+        "downloading" => State::Downloading { release, done: 7_900_000, total: 12_400_000 },
+        "ready" => State::Ready { release, path: PathBuf::new() },
+        "failed" => State::Failed { msg: "Koneksi terputus saat mengunduh. Coba lagi untuk melanjutkan.".into(), release: Some(release) },
+        _ => State::Available(release),
+    })
+}
+
 pub fn spawn() {
-    START.call_once(|| {
+    let fake = fake_state();
+    if let Some(state) = &fake {
+        set(state.clone());
+    }
+    let fake = fake.is_some();
+    START.call_once(move || {
         let (tx, rx) = channel();
         let _ = TX.set(Mutex::new(tx));
         std::thread::spawn(move || {
@@ -173,7 +199,7 @@ pub fn spawn() {
                     Ok(Cmd::Check) => check(true),
                     Ok(Cmd::Download) => download_release(),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if crate::settings_io::load().auto_update {
+                        if !fake && crate::settings_io::load().auto_update {
                             check(false);
                         }
                     }

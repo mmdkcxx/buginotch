@@ -50,6 +50,20 @@ The token can also be given as the `ISLE_UPDATE_TOKEN` environment variable (not
 disk). Each release needs `IsleWin-Setup-x.y.z.exe`; the release workflow also uploads its
 `.sha256`.
 
+## Page order and glass
+
+```toml
+# Pages named here come in this order (in the places those pages hold now); the rest keep
+# their order. Ids: music, timer, todo, clipboard, shelf, water, widgets, notifications,
+# digioh, usage, update. Read when IsleWin starts, so restart it after editing.
+page_order = ["usage", "music", "timer"]
+
+glass = true         # frosted-glass notch (also in the tray menu)
+glass_light = false  # the milky light variant
+```
+
+The **Pembaruan** page only shows while there is an update to install (or a download or a failure).
+
 ## Phone link (Shelf)
 
 Press **Ponsel** on the Shelf page to start a small web server (local network only). Scan the QR code with an iPhone or Android camera; the page that opens sends files to the Shelf and downloads the tiles you marked with the small phone button.

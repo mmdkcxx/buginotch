@@ -180,6 +180,21 @@ impl Registry {
         self.modules.insert(index, m);
     }
 
+    /// Puts the modules named in `order` into that order. They take the places the named modules
+    /// held before; every other module stays where it is. Unknown ids are ignored.
+    pub fn reorder(&mut self, order: &[String]) {
+        let rank = |id: &str| order.iter().position(|o| o == id);
+        let slots: Vec<usize> = (0..self.modules.len()).filter(|&i| rank(self.modules[i].id()).is_some()).collect();
+        let mut named: Vec<Box<dyn Module>> = Vec::new();
+        for &i in slots.iter().rev() {
+            named.push(self.modules.remove(i));
+        }
+        named.sort_by_key(|m| rank(m.id()));
+        for (slot, m) in slots.into_iter().zip(named) {
+            self.modules.insert(slot, m);
+        }
+    }
+
     fn page_indices(&self) -> Vec<usize> {
         (0..self.modules.len()).filter(|&i| self.modules[i].has_page()).collect()
     }
@@ -372,6 +387,17 @@ mod tests {
         fn draw_panel(&mut self, _c: &mut dyn Canvas, _a: Rect, _now: i64) {}
         fn on_event(&mut self, _e: &Event, _a: Rect, _now: i64) -> Reaction { Reaction::None }
         fn next_wake_ms(&self, _now: i64) -> Option<i64> { self.wake }
+    }
+
+    #[test]
+    fn reorder_moves_named_pages_and_leaves_the_rest() {
+        let mut r = Registry::new();
+        for id in ["clock", "a", "b", "c", "d"] {
+            r.add(Box::new(Fake::new(id)));
+        }
+        r.reorder(&["c".to_string(), "unknown".to_string(), "a".to_string()]);
+        let ids: Vec<_> = (0..r.page_count()).map(|i| r.page_at_mut(i).unwrap().id()).collect();
+        assert_eq!(ids, vec!["clock", "c", "b", "a", "d"]);
     }
 
     #[test]

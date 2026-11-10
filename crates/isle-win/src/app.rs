@@ -80,6 +80,10 @@ impl App {
             }
             _ => {}
         }
+        // Trying an order without touching settings.toml: ISLE_PAGE_ORDER=usage,music
+        if let Ok(order) = std::env::var("ISLE_PAGE_ORDER") {
+            settings.page_order = order.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        }
         let (w, h, r) = closed_dims(&settings, false);
         let mut registry = Registry::new();
         registry.add(Box::new(ClockModule));

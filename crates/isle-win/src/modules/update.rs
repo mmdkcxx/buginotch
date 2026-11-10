@@ -20,8 +20,7 @@ const TRACK: Color = Color(43, 47, 54, 255);
 const BLUE: Color = Color(59, 130, 246, 255);
 const GREEN: Color = Color(52, 211, 153, 255);
 const RED: Color = Color(255, 107, 107, 255);
-const GAP: f32 = 12.0;
-const ROW_GAP: f32 = 6.0;
+const AMBER: Color = Color(245, 185, 66, 255);
 const PEEK_MS: i64 = 6000;
 const LINES: usize = 3;
 
@@ -89,36 +88,71 @@ impl UpdateModule {
         me
     }
 
-    /// The buttons for a state, top to bottom: what they do, their label, and whether primary.
+    /// The pill buttons for a state, left to right in the card's top-right corner: what they
+    /// do, their label, and whether primary.
     fn buttons_for(&self, state: &State) -> Vec<(Act, String, bool)> {
         let b = |a, l: &str, p| (a, l.to_string(), p);
         match state {
             State::Idle | State::UpToDate { .. } => {
                 let auto = if crate::settings_io::load().auto_update { "Otomatis: aktif" } else { "Otomatis: mati" };
-                vec![b(Act::Check, "Periksa sekarang", true), b(Act::ToggleAuto, auto, false)]
+                vec![b(Act::Check, "Periksa", true), b(Act::ToggleAuto, auto, false)]
             }
             State::Checking => vec![],
             State::Available(_) if self.snoozed => vec![b(Act::Show, "Lihat", true)],
-            State::Available(_) => vec![b(Act::Download, "Perbarui sekarang", true), b(Act::Snooze, "Nanti", false), b(Act::Skip, "Lewati versi ini", false)],
+            State::Available(_) => vec![b(Act::Download, "Perbarui", true), b(Act::Snooze, "Nanti", false)],
             State::Downloading { .. } => vec![b(Act::Cancel, "Batal", false)],
             State::Ready { .. } if self.snoozed => vec![b(Act::Show, "Lihat", true)],
-            State::Ready { .. } => {
-                let later = if updater::install_on_exit_pending() { "Terjadwal saat keluar" } else { "Pasang saat keluar" };
-                vec![b(Act::InstallNow, "Mulai ulang & pasang", true), b(Act::InstallOnExit, later, false), b(Act::Snooze, "Nanti", false)]
-            }
+            State::Ready { .. } => vec![b(Act::InstallNow, "Pasang & mulai ulang", true), b(Act::Snooze, "Nanti", false)],
             State::Failed { .. } => vec![b(Act::Retry, "Coba lagi", true), b(Act::DismissFailure, "Tutup", false)],
+        }
+    }
+
+    /// The small text link at the card's bottom-right, for the less common choice.
+    fn link_for(&self, state: &State) -> Option<(Act, String)> {
+        match state {
+            State::Available(_) if !self.snoozed => Some((Act::Skip, "Lewati versi ini".to_string())),
+            State::Ready { .. } if !self.snoozed => {
+                let later = if updater::install_on_exit_pending() { "Terjadwal saat keluar" } else { "Pasang saat keluar" };
+                Some((Act::InstallOnExit, later.to_string()))
+            }
+            _ => None,
         }
     }
 }
 
-/// The large card on the left and three button rows on the right.
-fn layout(area: Rect) -> (Rect, [Rect; 3]) {
-    let card = Rect { w: (area.w - GAP) * 0.6, ..area };
-    let x = card.x + card.w + GAP;
-    let w = area.w - card.w - GAP;
-    let h = (area.h - ROW_GAP * 2.0) / 3.0;
-    let row = |i: usize| Rect { x, y: area.y + i as f32 * (h + ROW_GAP), w, h };
-    (card, [row(0), row(1), row(2)])
+const PILL_H: f32 = 26.0;
+
+/// The pill buttons in the card's top-right corner (first label leftmost).
+fn pill_rects(card: Rect, labels: &[(Act, String, bool)]) -> Vec<Rect> {
+    let mut x = card.x + card.w - 12.0;
+    let mut out = Vec::with_capacity(labels.len());
+    for (_, l, _) in labels.iter().rev() {
+        let w = (l.chars().count() as f32 * 6.8 + 26.0).max(58.0);
+        x -= w;
+        out.push(Rect { x, y: card.y + 9.0, w, h: PILL_H });
+        x -= 6.0;
+    }
+    out.reverse();
+    out
+}
+
+fn link_rect(card: Rect, label: &str) -> Rect {
+    let w = label.chars().count() as f32 * 6.0 + 12.0;
+    Rect { x: card.x + card.w - 10.0 - w, y: card.y + card.h - 24.0, w, h: 20.0 }
+}
+
+/// A release-note line without its bullet, and a tag when it starts like a commit ("feat: ...").
+fn note_parts(line: &str) -> (Option<(&'static str, Color)>, String) {
+    let t = line.trim_start_matches(['•', '-', '*', ' ']).trim();
+    let lower = t.to_lowercase();
+    for (prefix, tag, color) in [("feat", "BARU", GREEN), ("fix", "PERBAIKAN", AMBER)] {
+        if lower.starts_with(prefix) {
+            if let Some(i) = t.find(':') {
+                return (Some((tag, color)), t[i + 1..].trim().to_string());
+            }
+        }
+    }
+    (None, t.to_string())
 }
 
 /// "09:54" for `at_ms`, in local time (the same trick the Notifications page uses).
@@ -193,7 +227,7 @@ impl Module for UpdateModule {
     fn draw_panel(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64) {
         let state = updater::state();
         let current = updater::current_version();
-        let (card, rows) = layout(area);
+        let card = area;
         // Restart the text scroll when the panel reopens or the content changes.
         let key = format!("{:?}{}", std::mem::discriminant(&state), self.snoozed);
         if now_ms - self.last_draw_ms > 400 || self.shown.as_ref().map(|(k, _)| k) != Some(&key) {
@@ -202,99 +236,148 @@ impl Module for UpdateModule {
         self.last_draw_ms = now_ms;
         let shown_ms = self.shown.as_ref().map_or(0, |(_, t)| now_ms - t);
 
-        // (glyph, tile colour, title, meta line, meta colour, body paragraphs)
-        let mut glyph = ('↓', BLUE, Color(255, 255, 255, 255));
-        let mut meta_color = DIM;
-        let (title, meta, body): (String, String, String) = match &state {
-            State::Idle => {
-                glyph = ('↻', TRACK, WHITE);
-                ("Pembaruan".into(), format!("Versi {current}"), "Belum diperiksa. Tekan Periksa sekarang.".into())
-            }
-            State::Checking => {
-                glyph = ('…', TRACK, WHITE);
-                ("Memeriksa pembaruan…".into(), format!("Versi {current}"), String::new())
-            }
-            State::UpToDate { at_ms } => {
-                glyph = ('✓', GREEN, Color(5, 46, 31, 255));
-                let hours = crate::settings_io::load();
-                let note = if hours.auto_update { format!("Pengecekan otomatis tiap {} jam.", hours.update_check_hours.max(1)) } else { "Pengecekan otomatis mati.".to_string() };
-                ("IsleWin sudah terbaru".into(), format!("Versi {current} · dicek {}", clock_of(*at_ms, now_ms)), note)
-            }
-            State::Available(r) if self.snoozed => (format!("Update {} ditunda", r.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
-            State::Available(r) => {
-                let size = if r.size > 0 { format!(" · {}", format_bytes(r.size)) } else { String::new() };
-                let notes = if r.notes.is_empty() { "Tanpa catatan rilis.".to_string() } else { r.notes.join("\n") };
-                (format!("IsleWin {} tersedia", r.version), format!("Sekarang {current}{size}"), notes)
-            }
-            State::Downloading { release, done, total } => {
-                let of = if *total > 0 { format!("{} dari {}", format_bytes(*done), format_bytes(*total)) } else { format_bytes(*done) };
-                (format!("Mengunduh IsleWin {}", release.version), of, String::new())
-            }
-            State::Ready { release, .. } if self.snoozed => (format!("{} siap dipasang", release.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
-            State::Ready { release, .. } => {
-                glyph = ('✓', GREEN, Color(5, 46, 31, 255));
-                meta_color = GREEN;
-                let note = if updater::install_on_exit_pending() { "Akan dipasang saat Anda keluar dari IsleWin." } else { "IsleWin menutup sekitar 5 detik, memasang, lalu terbuka lagi sendiri." };
-                (format!("{} siap dipasang", release.version), "Terverifikasi · SHA-256 cocok".into(), note.into())
-            }
-            State::Failed { msg, .. } => {
-                glyph = ('!', RED, Color(42, 10, 10, 255));
-                ("Gagal memperbarui".into(), format!("Versi {current} tetap berjalan"), msg.clone())
-            }
-        };
+        let list = self.buttons_for(&state);
+        let pills = pill_rects(card, &list);
+        let link = self.link_for(&state);
+        // Room for the title: up to the leftmost pill.
+        let head_w = pills.first().map_or(card.w - 26.0, |p| p.x - card.x - 22.0);
 
-        // Card
         c.fill_round_rect(card, 13.0, CARD);
         c.push_clip(card, 13.0);
-        tile(c, Rect { x: card.x + 13.0, y: card.y + 11.0, w: 28.0, h: 28.0 }, glyph.0, glyph.1, glyph.2);
-        let tx = card.x + 50.0;
-        let tw = card.w - 63.0;
-        let title = fit_text(c, &title, 13.0, 650, tw);
-        c.draw_text(&title, Rect { x: tx, y: card.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, WHITE, Align::Left);
-        let meta = fit_text(c, &meta, 10.5, 400, tw);
-        c.draw_text(&meta, Rect { x: tx, y: card.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, meta_color, Align::Left);
-
         let mut rolling = false;
-        if let State::Downloading { done, total, .. } = &state {
-            let bar = Rect { x: card.x + 13.0, y: card.y + 56.0, w: card.w - 26.0, h: 8.0 };
-            c.fill_round_rect(bar, 4.0, TRACK);
-            let frac = if *total > 0 { (*done as f32 / *total as f32).clamp(0.0, 1.0) } else { 0.0 };
-            if frac > 0.0 {
-                c.fill_round_rect(Rect { w: (bar.w * frac).max(8.0), ..bar }, 4.0, BLUE);
+        match &state {
+            State::Available(r) if !self.snoozed => {
+                // 0.3.5 -> 0.3.6 [size], then up to three release notes with tags.
+                let old = format!("{current} →");
+                c.draw_text(&old, Rect { x: card.x + 16.0, y: card.y + 17.0, w: 70.0, h: 16.0 }, 12.0, 400, DIM, Align::Left);
+                let ow = c.measure_text(&old, 12.0, 400);
+                let nx = card.x + 16.0 + ow + 8.0;
+                let nw = c.measure_text(&r.version, 25.0, 700).ceil();
+                c.draw_text(&r.version, Rect { x: nx, y: card.y + 7.0, w: nw + 4.0, h: 32.0 }, 25.0, 700, WHITE, Align::Left);
+                if r.size > 0 {
+                    let size = format_bytes(r.size);
+                    let sw = c.measure_text(&size, 10.5, 500).ceil() + 14.0;
+                    let chip = Rect { x: nx + nw + 10.0, y: card.y + 15.0, w: sw, h: 18.0 };
+                    if chip.x + chip.w < pills[0].x - 6.0 {
+                        c.fill_round_rect(chip, 9.0, TRACK);
+                        c.draw_text(&size, Rect { y: chip.y + 1.5, h: 15.0, ..chip }, 10.5, 500, BODY, Align::Center);
+                    }
+                }
+                let notes: Vec<(Option<(&'static str, Color)>, String)> = r.notes.iter().map(|n| note_parts(n)).collect();
+                let shown = notes.len().min(3);
+                let text_w = card.w - 32.0 - if link.is_some() { 108.0 } else { 0.0 };
+                for (i, (tag, text)) in notes.iter().take(shown).enumerate() {
+                    let y = card.y + 50.0 + i as f32 * 18.0;
+                    let mut x = card.x + 16.0;
+                    if let Some((label, color)) = tag {
+                        let tw = c.measure_text(label, 8.5, 700).ceil() + 10.0;
+                        c.fill_round_rect(Rect { x, y: y + 2.0, w: tw, h: 13.0 }, 4.0, Color(color.0, color.1, color.2, 70));
+                        let ink = Color(((color.0 as u16 + 255) / 2) as u8, ((color.1 as u16 + 255) / 2) as u8, ((color.2 as u16 + 255) / 2) as u8, 255);
+                        c.draw_text(label, Rect { x, y: y + 2.5, w: tw, h: 12.0 }, 8.5, 700, ink, Align::Center);
+                        x += tw + 7.0;
+                    }
+                    let line = fit_text(c, text, 12.0, 400, text_w - (x - card.x - 16.0));
+                    c.draw_text(&line, Rect { x, y, w: text_w, h: 17.0 }, 12.0, 400, BODY, Align::Left);
+                }
+                if notes.is_empty() {
+                    c.draw_text("Tanpa catatan rilis.", Rect { x: card.x + 16.0, y: card.y + 50.0, w: text_w, h: 17.0 }, 12.0, 400, DIM, Align::Left);
+                } else if notes.len() > shown {
+                    c.draw_text(&format!("+{} lagi", notes.len() - shown), Rect { x: card.x + 16.0, y: card.y + 50.0 + shown as f32 * 18.0 + 1.0, w: 80.0, h: 14.0 }, 10.5, 400, DIM, Align::Left);
+                }
             }
-            if now_ms - self.sample.1 >= 500 {
-                let dt = (now_ms - self.sample.1).max(1) as f32 / 1000.0;
-                let inst = done.saturating_sub(self.sample.0) as f32 / dt;
-                self.speed = if self.speed == 0.0 { inst } else { self.speed * 0.6 + inst * 0.4 };
-                self.sample = (*done, now_ms);
+            _ => {
+                // (glyph, tile colour, title, meta line, meta colour, body paragraphs)
+                let mut glyph = ('↓', BLUE, Color(255, 255, 255, 255));
+                let mut meta_color = DIM;
+                let (title, meta, body): (String, String, String) = match &state {
+                    State::Idle => {
+                        glyph = ('↻', TRACK, WHITE);
+                        ("Pembaruan".into(), format!("Versi {current}"), "Belum diperiksa. Tekan Periksa.".into())
+                    }
+                    State::Checking => {
+                        glyph = ('…', TRACK, WHITE);
+                        ("Memeriksa pembaruan…".into(), format!("Versi {current}"), String::new())
+                    }
+                    State::UpToDate { at_ms } => {
+                        glyph = ('✓', GREEN, Color(5, 46, 31, 255));
+                        let hours = crate::settings_io::load();
+                        let note = if hours.auto_update { format!("Pengecekan otomatis tiap {} jam.", hours.update_check_hours.max(1)) } else { "Pengecekan otomatis mati.".to_string() };
+                        ("IsleWin sudah terbaru".into(), format!("Versi {current} · dicek {}", clock_of(*at_ms, now_ms)), note)
+                    }
+                    State::Available(r) => (format!("Update {} ditunda", r.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
+                    State::Downloading { release, done, total } => {
+                        let of = if *total > 0 { format!("{} dari {}", format_bytes(*done), format_bytes(*total)) } else { format_bytes(*done) };
+                        (format!("Mengunduh IsleWin {}", release.version), of, String::new())
+                    }
+                    State::Ready { release, .. } if self.snoozed => (format!("{} siap dipasang", release.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
+                    State::Ready { release, .. } => {
+                        glyph = ('✓', GREEN, Color(5, 46, 31, 255));
+                        meta_color = Color(110, 231, 183, 255);
+                        let note = if updater::install_on_exit_pending() { "Akan dipasang saat Anda keluar dari IsleWin." } else { "IsleWin menutup sekitar 5 detik, memasang, lalu terbuka lagi sendiri." };
+                        (format!("{} siap dipasang", release.version), "Terverifikasi · SHA-256 cocok".into(), note.into())
+                    }
+                    State::Failed { msg, .. } => {
+                        glyph = ('!', RED, Color(42, 10, 10, 255));
+                        ("Gagal memperbarui".into(), format!("Versi {current} tetap berjalan"), msg.clone())
+                    }
+                };
+                tile(c, Rect { x: card.x + 13.0, y: card.y + 11.0, w: 28.0, h: 28.0 }, glyph.0, glyph.1, glyph.2);
+                let tx = card.x + 50.0;
+                let tw = (head_w - 28.0).max(60.0);
+                let title = fit_text(c, &title, 13.0, 650, tw);
+                c.draw_text(&title, Rect { x: tx, y: card.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, WHITE, Align::Left);
+                let meta = fit_text(c, &meta, 10.5, 400, tw);
+                c.draw_text(&meta, Rect { x: tx, y: card.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, meta_color, Align::Left);
+
+                if let State::Downloading { done, total, .. } = &state {
+                    let bar = Rect { x: card.x + 16.0, y: card.y + 56.0, w: card.w - 32.0, h: 9.0 };
+                    c.fill_round_rect(bar, 4.5, TRACK);
+                    let frac = if *total > 0 { (*done as f32 / *total as f32).clamp(0.0, 1.0) } else { 0.0 };
+                    if frac > 0.0 {
+                        c.fill_round_rect(Rect { w: (bar.w * frac).max(9.0), ..bar }, 4.5, BLUE);
+                    }
+                    if now_ms - self.sample.1 >= 500 {
+                        let dt = (now_ms - self.sample.1).max(1) as f32 / 1000.0;
+                        let inst = done.saturating_sub(self.sample.0) as f32 / dt;
+                        self.speed = if self.speed == 0.0 { inst } else { self.speed * 0.6 + inst * 0.4 };
+                        self.sample = (*done, now_ms);
+                    }
+                    let left_s = if self.speed > 1.0 && *total > *done { Some(((*total - *done) as f32 / self.speed).ceil() as u32) } else { None };
+                    let speed = if self.speed > 1.0 { format!("{}/dtk", format_bytes(self.speed as u64)) } else { String::new() };
+                    let detail = match left_s {
+                        Some(sec) => format!("{speed} · {sec} dtk lagi"),
+                        None => speed,
+                    };
+                    c.draw_text(&format!("{}%", (frac * 100.0) as u32), Rect { x: card.x + 16.0, y: card.y + 74.0, w: 90.0, h: 30.0 }, 25.0, 700, WHITE, Align::Left);
+                    c.draw_text(&detail, Rect { x: card.x + 110.0, y: card.y + 82.0, w: card.w - 126.0, h: 16.0 }, 11.5, 400, DIM, Align::Right);
+                    rolling = true;
+                } else if !body.is_empty() {
+                    let area_w = card.w - 32.0 - if link.is_some() { 108.0 } else { 0.0 };
+                    let lines = wrap_paragraphs(c, &body, 12.5, 400, area_w, 60);
+                    let dy = if lines.len() > LINES {
+                        rolling = true;
+                        scroll_offset((lines.len() - LINES) as f32 * 18.0, shown_ms)
+                    } else {
+                        0.0
+                    };
+                    let text_area = Rect { x: card.x + 16.0, y: card.y + 52.0, w: area_w, h: LINES as f32 * 18.0 + 4.0 };
+                    c.push_clip(text_area, 0.0);
+                    for (i, line) in lines.iter().enumerate() {
+                        c.draw_text(line, Rect { x: text_area.x, y: text_area.y + i as f32 * 18.0 - dy, w: text_area.w, h: 18.0 }, 12.5, 400, BODY, Align::Left);
+                    }
+                    c.pop_clip();
+                }
             }
-            let speed = if self.speed > 1.0 { format!("{}/dtk", format_bytes(self.speed as u64)) } else { String::new() };
-            c.draw_text(&format!("{}%", (frac * 100.0) as u32), Rect { x: card.x + 13.0, y: card.y + 70.0, w: 60.0, h: 22.0 }, 17.0, 700, WHITE, Align::Left);
-            c.draw_text(&speed, Rect { x: card.x + 70.0, y: card.y + 73.0, w: card.w - 83.0, h: 16.0 }, 11.5, 400, DIM, Align::Right);
-            rolling = true;
-        } else if !body.is_empty() {
-            let lines = wrap_paragraphs(c, &body, 13.0, 400, card.w - 26.0, 60);
-            let dy = if lines.len() > LINES {
-                rolling = true;
-                scroll_offset((lines.len() - LINES) as f32 * 18.0, shown_ms)
-            } else {
-                0.0
-            };
-            let area = Rect { x: card.x + 13.0, y: card.y + 50.0, w: card.w - 26.0, h: LINES as f32 * 18.0 + 4.0 };
-            c.push_clip(area, 0.0);
-            for (i, line) in lines.iter().enumerate() {
-                c.draw_text(line, Rect { x: area.x, y: area.y + i as f32 * 18.0 - dy, w: area.w, h: 18.0 }, 13.0, 400, BODY, Align::Left);
-            }
-            c.pop_clip();
         }
         c.pop_clip();
 
-        // Buttons
-        let list = self.buttons_for(&state);
         let mut busy = false;
         for (i, (_, label, primary)) in list.iter().enumerate() {
-            self.buttons[i].draw(c, rows[i], label, *primary, now_ms);
+            self.buttons[i].draw(c, pills[i], label, *primary, now_ms);
             busy |= self.buttons[i].busy(now_ms);
+        }
+        if let Some((_, label)) = &link {
+            c.draw_text(label, link_rect(card, label), 11.0, 500, DIM, Align::Right);
         }
         self.animating = rolling || busy || matches!(state, State::Checking);
     }
@@ -304,34 +387,47 @@ impl Module for UpdateModule {
             return Reaction::None;
         };
         let state = updater::state();
-        let (_, rows) = layout(area);
         let list = self.buttons_for(&state);
+        let pills = pill_rects(area, &list);
+        let mut hit: Option<(Act, Option<usize>)> = None;
         for (i, (act, _, _)) in list.iter().enumerate() {
-            let r = rows[i];
-            if x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h {
-                continue;
+            let r = pills[i];
+            if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
+                hit = Some((*act, Some(i)));
             }
-            self.buttons[i].press(now_ms);
-            match act {
-                Act::Check | Act::Retry if matches!(act, Act::Check) || !matches!(state, State::Failed { release: Some(_), .. }) => updater::check_now(),
-                Act::Retry | Act::Download => updater::download(),
-                Act::ToggleAuto => crate::settings_io::update(|s| s.auto_update = !s.auto_update),
-                Act::Snooze => self.snoozed = true,
-                Act::Show => self.snoozed = false,
-                Act::Skip => {
-                    if let State::Available(r) = &state {
-                        updater::skip(&r.version);
-                    }
-                }
-                Act::Cancel => updater::cancel_download(),
-                Act::InstallNow => updater::install_now(),
-                Act::InstallOnExit => updater::install_on_exit(),
-                Act::DismissFailure => updater::dismiss_failure(),
-                _ => {}
-            }
-            return Reaction::Redraw;
         }
-        Reaction::None
+        if hit.is_none() {
+            if let Some((act, label)) = self.link_for(&state) {
+                let r = link_rect(area, &label);
+                if x >= r.x - 6.0 && x < r.x + r.w + 6.0 && y >= r.y - 4.0 && y < r.y + r.h + 4.0 {
+                    hit = Some((act, None));
+                }
+            }
+        }
+        let Some((act, index)) = hit else {
+            return Reaction::None;
+        };
+        if let Some(i) = index {
+            self.buttons[i].press(now_ms);
+        }
+        match act {
+            Act::Check | Act::Retry if matches!(act, Act::Check) || !matches!(state, State::Failed { release: Some(_), .. }) => updater::check_now(),
+            Act::Retry | Act::Download => updater::download(),
+            Act::ToggleAuto => crate::settings_io::update(|s| s.auto_update = !s.auto_update),
+            Act::Snooze => self.snoozed = true,
+            Act::Show => self.snoozed = false,
+            Act::Skip => {
+                if let State::Available(r) = &state {
+                    updater::skip(&r.version);
+                }
+            }
+            Act::Cancel => updater::cancel_download(),
+            Act::InstallNow => updater::install_now(),
+            Act::InstallOnExit => updater::install_on_exit(),
+            Act::DismissFailure => updater::dismiss_failure(),
+            _ => {}
+        }
+        Reaction::Redraw
     }
 
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {

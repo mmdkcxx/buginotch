@@ -84,6 +84,8 @@ impl Window {
                 if let Some(app) = a.borrow_mut().as_mut() {
                     app.registry.add(Box::new(crate::modules::headphones::HeadphonesModule::new(headphones)));
                     app.registry.insert_page(1, Box::new(crate::modules::music::MusicModule::new(watcher, hwnd.0 as isize, lead)));
+                    let order = app.settings.page_order.clone();
+                    app.registry.reorder(&order);
                 }
             });
             if let Ok(t) = Tray::add(hwnd) {
