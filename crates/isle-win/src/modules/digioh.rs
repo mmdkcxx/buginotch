@@ -57,7 +57,7 @@ fn dashed(c: &mut dyn Canvas, r: Rect, col: Color) {
     }
 }
 
-fn offset_minutes(now_ms: i64) -> i64 {
+pub fn offset_minutes(now_ms: i64) -> i64 {
     let t = local_time();
     let local = (t.hour * 60 + t.minute) as i64;
     let utc = (now_ms / 60_000).rem_euclid(1440);

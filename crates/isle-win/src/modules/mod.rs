@@ -6,6 +6,7 @@ pub mod charging;
 pub mod clipboard;
 pub mod clock;
 pub mod digioh;
+pub mod usage;
 pub mod headphones;
 pub mod music;
 pub mod notifications;

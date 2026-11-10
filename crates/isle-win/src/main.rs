@@ -18,6 +18,7 @@ mod settings_io;
 mod system;
 mod tray;
 mod updater;
+mod usage;
 mod ui;
 mod window;
 
