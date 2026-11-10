@@ -7,7 +7,7 @@ use crate::system::{epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_lines};
 use std::collections::HashMap;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
-use isle_logic::notifs::{Feed, Notif, arrange, letter, snippet, tile_color};
+use isle_logic::notifs::{Feed, Notif, arrange, letter, scroll_offset, snippet, tile_color};
 use isle_logic::peek::Peek;
 use isle_logic::timefmt::format_clock;
 
@@ -29,6 +29,11 @@ pub struct NotificationsModule {
     selected: Option<u32>,
     /// A swap in progress: where each card was, and when it started (epoch ms).
     swap: Option<(Vec<(u32, Spot)>, i64)>,
+    /// The card now in the large slot and when it got there, to time the scrolling of long text.
+    shown: Option<(u32, i64)>,
+    /// When the panel was last drawn, and whether some text on it is currently scrolling.
+    last_draw_ms: i64,
+    scrolling: bool,
 }
 
 /// Where a card sits: the large slot or one of the three side rows.
@@ -80,7 +85,7 @@ fn placements(items: &[Notif], selected: Option<u32>) -> Vec<(usize, Spot)> {
 impl NotificationsModule {
     pub fn new() -> Self {
         notif_win::spawn();
-        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swap: None }
+        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swap: None, shown: None, last_draw_ms: i64::MIN / 2, scrolling: false }
     }
 
     fn swapping(&self, now_ms: i64) -> bool {
@@ -88,7 +93,8 @@ impl NotificationsModule {
     }
 
     /// One card at `r`, between a compact row (`e` = 0) and the large card (`e` = 1).
-    fn draw_card(&self, c: &mut dyn Canvas, r: Rect, n: &Notif, e: f32, big_w: f32, now_ms: i64) {
+    fn draw_card(&self, c: &mut dyn Canvas, r: Rect, n: &Notif, e: f32, big_w: f32, now_ms: i64, shown_ms: i64) -> bool {
+        let mut scrolling = false;
         let logo = self.icons.get(&n.app).copied().flatten();
         c.fill_round_rect(r, lerp(11.0, 13.0, e), CARD);
         c.push_clip(r, lerp(11.0, 13.0, e));
@@ -102,16 +108,45 @@ impl NotificationsModule {
             let a = ((e - 0.35) / 0.65).clamp(0.0, 1.0);
             let tx = r.x + 50.0;
             let tw = big_w - 63.0;
-            let title = fit_text(c, if n.title.is_empty() { &n.app } else { &n.title }, 13.0, 650, tw);
-            c.draw_text(&title, Rect { x: tx, y: r.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, alpha(WHITE, a), Align::Left);
+            let full_title = if n.title.is_empty() { &n.app } else { &n.title };
+            let title_w = c.measure_text(full_title, 13.0, 650);
+            if e > 0.98 && title_w > tw {
+                // Too long for the card: glide it sideways until the end shows.
+                scrolling = true;
+                let dx = scroll_offset(title_w - tw, shown_ms);
+                c.push_clip(Rect { x: tx, y: r.y + 9.0, w: tw, h: 18.0 }, 0.0);
+                c.draw_text(full_title, Rect { x: tx - dx, y: r.y + 9.0, w: title_w + 24.0, h: 18.0 }, 13.0, 650, alpha(WHITE, a), Align::Left);
+                c.pop_clip();
+            } else {
+                let title = fit_text(c, full_title, 13.0, 650, tw);
+                c.draw_text(&title, Rect { x: tx, y: r.y + 9.0, w: tw, h: 18.0 }, 13.0, 650, alpha(WHITE, a), Align::Left);
+            }
             let meta = fit_text(c, &format!("{} · {}", n.app, clock_of(n.at_ms, now_ms)), 10.5, 400, tw);
             c.draw_text(&meta, Rect { x: tx, y: r.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, alpha(DIM, a), Align::Left);
             let body = if n.title.is_empty() { "" } else { n.body.as_str() };
-            for (i, line) in wrap_lines(c, body, 13.0, 400, big_w - 26.0, 3).iter().enumerate() {
-                c.draw_text(line, Rect { x: r.x + 13.0, y: r.y + 50.0 + i as f32 * 18.0 + 5.0 * (1.0 - a), w: big_w - 26.0, h: 18.0 }, 13.0, 400, alpha(BODY, a), Align::Left);
+            const VISIBLE: usize = 3;
+            let lines = wrap_lines(c, body, 13.0, 400, big_w - 26.0, 60);
+            let dy = if e > 0.98 && lines.len() > VISIBLE {
+                // More lines than fit: roll them upwards until the last one is shown.
+                scrolling = true;
+                scroll_offset((lines.len() - VISIBLE) as f32 * 18.0, shown_ms)
+            } else {
+                0.0
+            };
+            let area = Rect { x: r.x + 13.0, y: r.y + 50.0 + 5.0 * (1.0 - a), w: big_w - 26.0, h: VISIBLE as f32 * 18.0 + 4.0 };
+            c.push_clip(area, 0.0);
+            // While the card is still moving, show three lines with an ellipsis; once settled,
+            // the clip hides the rest and the lines roll by.
+            let settled = e > 0.98;
+            for (i, line) in lines.iter().enumerate().take(if settled { lines.len() } else { VISIBLE }) {
+                let cut = !settled && lines.len() > VISIBLE && i + 1 == VISIBLE;
+                let text = if cut { fit_text(c, &format!("{line}…"), 13.0, 400, big_w - 26.0) } else { line.clone() };
+                c.draw_text(&text, Rect { x: area.x, y: r.y + 50.0 + i as f32 * 18.0 + 5.0 * (1.0 - a) - dy, w: big_w - 26.0, h: 18.0 }, 13.0, 400, alpha(BODY, a), Align::Left);
             }
+            c.pop_clip();
         }
         c.pop_clip();
+        scrolling
     }
 }
 
@@ -196,6 +231,15 @@ impl Module for NotificationsModule {
             return;
         }
         let (main, _) = layout(area);
+        let main_id = now_places.iter().find(|(_, s)| *s == Spot::Main).map(|&(i, _)| items[i].id);
+        // Start the scrolling clock when a card takes the large slot, or when the panel reopens.
+        let reopened = now_ms - self.last_draw_ms > 400;
+        if reopened || self.shown.map(|(id, _)| id) != main_id {
+            self.shown = main_id.map(|id| (id, now_ms));
+        }
+        self.last_draw_ms = now_ms;
+        let shown_ms = self.shown.map_or(0, |(_, t0)| now_ms - t0);
+        let mut scrolling = false;
         let k = match &self.swap {
             Some((_, t0)) => ease_in_out((now_ms - t0) as f32 / SWAP_MS),
             None => 1.0,
@@ -213,8 +257,9 @@ impl Module for NotificationsModule {
                 }
                 _ => (end, end_e),
             };
-            self.draw_card(c, r, n, e, main.w, now_ms);
+            scrolling |= self.draw_card(c, r, n, e, main.w, now_ms, shown_ms);
         }
+        self.scrolling = scrolling;
     }
 
     fn on_event(&mut self, e: &Event, area: Rect, now_ms: i64) -> Reaction {
@@ -242,7 +287,9 @@ impl Module for NotificationsModule {
     fn next_wake_ms(&self, now_ms: i64) -> Option<i64> {
         // Keep frames coming while the cards trade places.
         let moving = self.swapping(now_ms).then_some(now_ms + 16);
-        [self.peek.wake_after(now_ms), moving].into_iter().flatten().min()
+        // Long text is scrolling while this page is on screen (it was drawn a moment ago).
+        let rolling = (self.scrolling && now_ms - self.last_draw_ms < 100).then_some(now_ms + 16);
+        [self.peek.wake_after(now_ms), moving, rolling].into_iter().flatten().min()
     }
 }
 

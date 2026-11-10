@@ -73,9 +73,33 @@ pub fn tile_color(app: &str) -> (u8, u8, u8) {
     PALETTE[h as usize % PALETTE.len()]
 }
 
+/// How far (px) to shift text that overflows by `overflow` px, `elapsed_ms` after it appeared:
+/// rest, glide to the end at a steady speed, rest, then start over.
+pub fn scroll_offset(overflow: f32, elapsed_ms: i64) -> f32 {
+    const REST_MS: f32 = 1500.0;
+    const PX_PER_S: f32 = 32.0;
+    if overflow <= 0.0 {
+        return 0.0;
+    }
+    let glide = overflow / PX_PER_S * 1000.0;
+    let t = (elapsed_ms.max(0) as f32) % (REST_MS + glide + REST_MS);
+    ((t - REST_MS).clamp(0.0, glide) / 1000.0 * PX_PER_S).min(overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scroll_rests_then_reaches_the_end_then_restarts() {
+        assert_eq!(scroll_offset(100.0, 0), 0.0);
+        assert_eq!(scroll_offset(100.0, 1400), 0.0);
+        let mid = scroll_offset(100.0, 1500 + 1000);
+        assert!(mid > 0.0 && mid < 100.0);
+        assert_eq!(scroll_offset(100.0, 1500 + 3125 + 500), 100.0);
+        assert_eq!(scroll_offset(100.0, 1500 + 3125 + 1500), 0.0);
+        assert_eq!(scroll_offset(0.0, 5000), 0.0);
+    }
 
     fn n(id: u32, at: i64) -> Notif {
         Notif { id, app: "WhatsApp".into(), title: "Dina".into(), body: "Halo".into(), at_ms: at }
