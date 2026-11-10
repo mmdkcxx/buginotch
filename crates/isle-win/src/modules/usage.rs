@@ -121,7 +121,10 @@ impl Module for UsageModule {
         self.pill_percent().map(|p| format!("{}%", p.round() as i32))
     }
     fn pill_priority(&self) -> u8 {
-        8
+        // A reset reminder outranks everything else in the pill while it shows (the to-do,
+        // water, notification and update texts all rank above the usage percentage and used
+        // to hide it); the plain percentage stays low.
+        if self.peek.current(epoch_ms()).is_some() { 60 } else { 8 }
     }
     fn pill_accent(&self) -> bool {
         true
@@ -143,6 +146,7 @@ impl Module for UsageModule {
         }
         self.snap = snap;
         for n in self.notifier.due(now) {
+            crate::log(&format!("usage reminder: {n:?}"));
             self.peek.show(notice_text(n), now, 8000);
             if matches!(n, Notice::Reset(_)) {
                 usage::refresh();
