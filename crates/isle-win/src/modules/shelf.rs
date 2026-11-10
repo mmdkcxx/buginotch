@@ -15,6 +15,8 @@ use std::collections::{HashMap, HashSet};
 
 const BLUE: Color = Color(59, 130, 246, 255);
 const PEEK_MS: i64 = 4500;
+const VIEW_MS: f32 = 340.0;
+const VIEW_SLIDE: f32 = 36.0;
 
 const WHITE: Color = Color(245, 246, 248, 255);
 const DIM: Color = Color(139, 144, 153, 255);
@@ -102,6 +104,7 @@ pub struct ShelfModule {
     leaving: Vec<Leaving>,
     /// Showing the phone link (QR code and buttons) instead of the tiles.
     phone_view: bool,
+    view_anim: Option<(i64, bool)>,
     phone_btn: Button,
     done_btn: Button,
     stop_btn: Button,
@@ -141,6 +144,7 @@ impl ShelfModule {
             anim_until: 0,
             leaving: Vec::new(),
             phone_view: false,
+            view_anim: None,
             phone_btn: Button::new(GREEN),
             done_btn: Button::new(AMBER),
             stop_btn: Button::new(AMBER),
@@ -168,6 +172,93 @@ impl ShelfModule {
         let any = !made.is_empty();
         self.fresh.extend(made);
         any
+    }
+
+    fn draw_tiles(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64) {
+        let l = layout(area);
+        let p = self.pending.len();
+        let n = self.shelf.items().len();
+        let caption = match (n, self.over) {
+            _ if self.err.is_some() => self.err.as_ref().map(|(m, _)| m.clone()).unwrap_or_default(),
+            (_, true) => "Lepaskan untuk menaruh di Shelf".to_string(),
+            (0, _) => "Shelf kosong".to_string(),
+            (n, _) => format!("{n} file · seret keluar atau klik untuk menyalin"),
+        };
+        c.draw_text(&caption, l.caption, 12.0, 400, if self.over || self.err.is_some() { GREEN } else { DIM }, Align::Left);
+        let running = self.status.running;
+        self.phone_btn.draw(c, l.phone, "Ponsel", running, now_ms);
+        self.clear_btn.draw(c, l.clear, "Kosongkan", false, now_ms);
+
+        self.scroll = self.scroll.clamp(0.0, max_scroll(&l, n + p));
+        if n + p == 0 {
+            // An empty shelf is a drop zone.
+            let zone = Rect { x: l.tiles.x, y: l.tiles.y, w: l.tiles.w, h: l.tiles.h };
+            let edge = if self.over { GREEN } else { Color(58, 63, 72, 255) };
+            c.fill_round_rect(zone, 14.0, edge);
+            c.fill_round_rect(Rect { x: zone.x + 1.5, y: zone.y + 1.5, w: zone.w - 3.0, h: zone.h - 3.0 }, 12.5, if self.over { FLASH } else { ROW });
+            c.draw_text("Seret file ke sini", Rect { y: zone.y + 28.0, h: 18.0, ..zone }, 13.0, 650, WHITE, Align::Center);
+            c.draw_text("Dari Explorer atau jendela mana pun", Rect { y: zone.y + 48.0, h: 16.0, ..zone }, 11.5, 400, DIM, Align::Center);
+        }
+        c.push_clip(l.tiles, 0.0);
+        // Files still arriving from the phone, with a progress ring.
+        for (k, t) in self.pending.iter().enumerate() {
+            let r = tile_rect(&l, k, self.scroll);
+            let frac = if t.total > 0 { t.done as f32 / t.total as f32 } else { 0.0 };
+            c.fill_round_rect(r, 12.0, ROW);
+            let (cx, cy) = (r.x + r.w / 2.0, r.y + 33.0);
+            c.stroke_arc(cx, cy, 19.0, 0.0, 359.9, 3.0, Color(38, 42, 49, 255));
+            c.stroke_arc(cx, cy, 19.0, -90.0, 359.0 * frac.clamp(0.01, 1.0), 3.0, BLUE);
+            c.draw_text(&format!("{}%", (frac * 100.0) as u32), Rect { x: cx - 20.0, y: cy - 8.0, w: 40.0, h: 16.0 }, 11.0, 650, WHITE, Align::Center);
+            let shown = fit_text(c, &t.name, 11.5, 500, r.w - 12.0);
+            c.draw_text(&shown, Rect { x: r.x + 6.0, y: r.y + 62.0, w: r.w - 12.0, h: 16.0 }, 11.5, 500, WHITE, Align::Center);
+            c.draw_text("dari ponsel", Rect { x: r.x + 6.0, y: r.y + 76.0, w: r.w - 12.0, h: 14.0 }, 10.0, 500, Color(96, 165, 250, 255), Align::Center);
+        }
+        for (i, item) in self.shelf.items().iter().enumerate() {
+            let mut r = tile_rect(&l, i + p, self.scroll);
+            // Tiles after a removed one glide left into the gap.
+            for g in &self.leaving {
+                if i >= g.index {
+                    let e = ease_out_soft(((now_ms - g.t0).max(0) as f32 - SLIDE_DELAY_MS) / SLIDE_MS);
+                    r.x += (TILE_W + TILE_GAP) * (1.0 - e);
+                }
+            }
+            if r.x + r.w < l.tiles.x || r.x > l.tiles.x + l.tiles.w {
+                continue;
+            }
+            // A newly dropped tile settles in from slightly above.
+            let enter = self.arrived.get(&item.id).map_or(1.0, |&t0| ease_out((now_ms - t0) as f32 / ENTER_MS));
+            self.draw_tile(c, r, &item.path, item.id, enter, true, now_ms);
+        }
+        // Tiles being removed shrink and fade where they were.
+        for g in &self.leaving {
+            let e = ease_in_out(((now_ms - g.t0).max(0)) as f32 / FADE_MS);
+            let r = tile_rect(&l, g.index + p, self.scroll);
+            let s = 1.0 - 0.3 * e;
+            let r = Rect { x: r.x + r.w * (1.0 - s) / 2.0, y: r.y + r.h * (1.0 - s) / 2.0 - 6.0 * e, w: r.w * s, h: r.h * s };
+            self.draw_tile(c, r, &g.path, g.id, 1.0 - e, false, now_ms);
+        }
+        c.pop_clip();
+        let max = max_scroll(&l, n + p);
+        if max > 0.0 {
+            let track = l.tiles.w;
+            let thumb = (track * track / (track + max)).max(20.0);
+            let x = l.tiles.x + (track - thumb) * (self.scroll / max);
+            c.fill_round_rect(Rect { x, y: l.tiles.y + l.tiles.h + 3.0, w: thumb, h: 2.0 }, 1.0, Color(90, 96, 106, 200));
+        }
+        self.arrived.retain(|_, &mut t0| ((now_ms - t0) as f32) < ENTER_MS);
+        self.leaving.retain(|g| ((now_ms - g.t0) as f32) < LEAVE_MS);
+        if self.copied.is_some_and(|(_, t0)| now_ms - t0 > COPIED_MS) {
+            self.copied = None;
+        }
+    }
+
+    /// Switches between the tiles and the QR page, with a slide.
+    fn set_view(&mut self, phone: bool, now_ms: i64) {
+        if self.phone_view != phone {
+            self.phone_view = phone;
+            self.view_anim = Some((now_ms, phone));
+            self.anim_until = self.anim_until.max(now_ms + VIEW_MS as i64 + 40);
+        }
     }
 
     fn sync_outgoing(&self) {
@@ -360,7 +451,7 @@ impl Module for ShelfModule {
         }
         if !status.running && self.status.running {
             // Stopped (idle or by the user): leave the QR page and clear the download marks.
-            self.phone_view = false;
+            self.set_view(false, now_ms);
             self.sent.clear();
         }
         self.pending = status.active.clone();
@@ -392,84 +483,26 @@ impl Module for ShelfModule {
     }
 
     fn draw_panel(&mut self, c: &mut dyn Canvas, area: Rect, now_ms: i64) {
+        // Changing between the tiles and the QR page slides and cross-fades them.
+        if let Some((t0, to_phone)) = self.view_anim {
+            let k = (now_ms - t0) as f32 / VIEW_MS;
+            if k < 1.0 {
+                let e = ease_out(k);
+                let (tiles_dx, tiles_a, phone_dx, phone_a) = if to_phone { (-VIEW_SLIDE * e, 1.0 - e, VIEW_SLIDE * (1.0 - e), e) } else { (-VIEW_SLIDE * (1.0 - e), e, VIEW_SLIDE * e, 1.0 - e) };
+                c.push_shift(tiles_dx, tiles_a);
+                self.draw_tiles(c, area, now_ms);
+                c.pop_shift();
+                c.push_shift(phone_dx, phone_a);
+                self.draw_phone(c, area, now_ms);
+                c.pop_shift();
+                return;
+            }
+            self.view_anim = None;
+        }
         if self.phone_view && self.status.running {
             self.draw_phone(c, area, now_ms);
-            return;
-        }
-        let l = layout(area);
-        let p = self.pending.len();
-        let n = self.shelf.items().len();
-        let caption = match (n, self.over) {
-            _ if self.err.is_some() => self.err.as_ref().map(|(m, _)| m.clone()).unwrap_or_default(),
-            (_, true) => "Lepaskan untuk menaruh di Shelf".to_string(),
-            (0, _) => "Shelf kosong".to_string(),
-            (n, _) => format!("{n} file · seret keluar atau klik untuk menyalin"),
-        };
-        c.draw_text(&caption, l.caption, 12.0, 400, if self.over || self.err.is_some() { GREEN } else { DIM }, Align::Left);
-        let running = self.status.running;
-        self.phone_btn.draw(c, l.phone, "Ponsel", running, now_ms);
-        self.clear_btn.draw(c, l.clear, "Kosongkan", false, now_ms);
-
-        self.scroll = self.scroll.clamp(0.0, max_scroll(&l, n + p));
-        if n + p == 0 {
-            // An empty shelf is a drop zone.
-            let zone = Rect { x: l.tiles.x, y: l.tiles.y, w: l.tiles.w, h: l.tiles.h };
-            let edge = if self.over { GREEN } else { Color(58, 63, 72, 255) };
-            c.fill_round_rect(zone, 14.0, edge);
-            c.fill_round_rect(Rect { x: zone.x + 1.5, y: zone.y + 1.5, w: zone.w - 3.0, h: zone.h - 3.0 }, 12.5, if self.over { FLASH } else { ROW });
-            c.draw_text("Seret file ke sini", Rect { y: zone.y + 28.0, h: 18.0, ..zone }, 13.0, 650, WHITE, Align::Center);
-            c.draw_text("Dari Explorer atau jendela mana pun", Rect { y: zone.y + 48.0, h: 16.0, ..zone }, 11.5, 400, DIM, Align::Center);
-        }
-        c.push_clip(l.tiles, 0.0);
-        // Files still arriving from the phone, with a progress ring.
-        for (k, t) in self.pending.iter().enumerate() {
-            let r = tile_rect(&l, k, self.scroll);
-            let frac = if t.total > 0 { t.done as f32 / t.total as f32 } else { 0.0 };
-            c.fill_round_rect(r, 12.0, ROW);
-            let (cx, cy) = (r.x + r.w / 2.0, r.y + 33.0);
-            c.stroke_arc(cx, cy, 19.0, 0.0, 359.9, 3.0, Color(38, 42, 49, 255));
-            c.stroke_arc(cx, cy, 19.0, -90.0, 359.0 * frac.clamp(0.01, 1.0), 3.0, BLUE);
-            c.draw_text(&format!("{}%", (frac * 100.0) as u32), Rect { x: cx - 20.0, y: cy - 8.0, w: 40.0, h: 16.0 }, 11.0, 650, WHITE, Align::Center);
-            let shown = fit_text(c, &t.name, 11.5, 500, r.w - 12.0);
-            c.draw_text(&shown, Rect { x: r.x + 6.0, y: r.y + 62.0, w: r.w - 12.0, h: 16.0 }, 11.5, 500, WHITE, Align::Center);
-            c.draw_text("dari ponsel", Rect { x: r.x + 6.0, y: r.y + 76.0, w: r.w - 12.0, h: 14.0 }, 10.0, 500, Color(96, 165, 250, 255), Align::Center);
-        }
-        for (i, item) in self.shelf.items().iter().enumerate() {
-            let mut r = tile_rect(&l, i + p, self.scroll);
-            // Tiles after a removed one glide left into the gap.
-            for g in &self.leaving {
-                if i >= g.index {
-                    let e = ease_out_soft(((now_ms - g.t0).max(0) as f32 - SLIDE_DELAY_MS) / SLIDE_MS);
-                    r.x += (TILE_W + TILE_GAP) * (1.0 - e);
-                }
-            }
-            if r.x + r.w < l.tiles.x || r.x > l.tiles.x + l.tiles.w {
-                continue;
-            }
-            // A newly dropped tile settles in from slightly above.
-            let enter = self.arrived.get(&item.id).map_or(1.0, |&t0| ease_out((now_ms - t0) as f32 / ENTER_MS));
-            self.draw_tile(c, r, &item.path, item.id, enter, true, now_ms);
-        }
-        // Tiles being removed shrink and fade where they were.
-        for g in &self.leaving {
-            let e = ease_in_out(((now_ms - g.t0).max(0)) as f32 / FADE_MS);
-            let r = tile_rect(&l, g.index + p, self.scroll);
-            let s = 1.0 - 0.3 * e;
-            let r = Rect { x: r.x + r.w * (1.0 - s) / 2.0, y: r.y + r.h * (1.0 - s) / 2.0 - 6.0 * e, w: r.w * s, h: r.h * s };
-            self.draw_tile(c, r, &g.path, g.id, 1.0 - e, false, now_ms);
-        }
-        c.pop_clip();
-        let max = max_scroll(&l, n + p);
-        if max > 0.0 {
-            let track = l.tiles.w;
-            let thumb = (track * track / (track + max)).max(20.0);
-            let x = l.tiles.x + (track - thumb) * (self.scroll / max);
-            c.fill_round_rect(Rect { x, y: l.tiles.y + l.tiles.h + 3.0, w: thumb, h: 2.0 }, 1.0, Color(90, 96, 106, 200));
-        }
-        self.arrived.retain(|_, &mut t0| ((now_ms - t0) as f32) < ENTER_MS);
-        self.leaving.retain(|g| ((now_ms - g.t0) as f32) < LEAVE_MS);
-        if self.copied.is_some_and(|(_, t0)| now_ms - t0 > COPIED_MS) {
-            self.copied = None;
+        } else {
+            self.draw_tiles(c, area, now_ms);
         }
     }
 
@@ -482,11 +515,11 @@ impl Module for ShelfModule {
                 let inside = |r: Rect| *x >= r.x && *x < r.x + r.w && *y >= r.y && *y < r.y + r.h;
                 if inside(done) {
                     self.done_btn.press(now_ms);
-                    self.phone_view = false;
+                    self.set_view(false, now_ms);
                 } else if inside(stop) {
                     self.stop_btn.press(now_ms);
                     phone::stop();
-                    self.phone_view = false;
+                    self.set_view(false, now_ms);
                     self.sent.clear();
                     self.sync_outgoing();
                     self.status = phone::status();
@@ -521,8 +554,7 @@ impl Module for ShelfModule {
                             self.qr = isle_logic::phone::qr(&self.status.url).map(|(n, cells)| (self.status.url.clone(), n, cells));
                         }
                     }
-                    self.phone_view = self.status.running;
-                    self.anim_until = now_ms + 300;
+                    self.set_view(self.status.running, now_ms);
                     Reaction::Redraw
                 }
                 Some(ShelfHit::Send(i)) => {
