@@ -244,8 +244,8 @@ impl App {
         } else {
             None
         };
-        // Long pill text scrolls: a timer-paced redraw (not a vsync loop, which would starve the mouse).
-        let rolling = (now - self.pill_rolling_ms < 120).then_some(now + 33);
+        // Long pill text scrolls: one frame per display refresh.
+        let rolling = (now - self.pill_rolling_ms < 120).then_some(now + 16);
         [self.registry.earliest_wake(now), eq, eyes, rolling].into_iter().flatten().min()
     }
 

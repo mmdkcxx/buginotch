@@ -324,9 +324,8 @@ impl Module for NotificationsModule {
         // Keep frames coming while the cards trade places.
         let moving = self.swapping(now_ms).then_some(now_ms + 16);
         // Long text is scrolling while this page is on screen (it was drawn a moment ago).
-        // 33 ms (timer path), not per-vsync: a back-to-back frame loop would starve mouse input and
-        // the notch could never see the pointer leave.
-        let rolling = (self.scrolling && now_ms - self.last_draw_ms < 120).then_some(now_ms + 33);
+        // One frame per display refresh (the window's frame loop lets mouse input through itself).
+        let rolling = (self.scrolling && now_ms - self.last_draw_ms < 120).then_some(now_ms + 16);
         [self.peek.wake_after(now_ms), moving, rolling].into_iter().flatten().min()
     }
 }

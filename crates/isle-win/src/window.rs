@@ -29,6 +29,7 @@ const WM_MOUSELEAVE: u32 = 0x02A3;
 
 thread_local! {
     static REGION: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((0, 0, 0)) };
+    static LAST_POLL_MS: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
     static TICK_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
     static HIDDEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -402,6 +403,22 @@ fn tick(hwnd: HWND) {
     }
 }
 
+/// Dispatches the keyboard, timer and mouse messages that are already waiting. A posted message
+/// (our frame tick) is always served before these, so a frame loop has to let them through itself.
+fn pump_input() {
+    // WM_KEYFIRST (0x100) ..= WM_MOUSELEAVE (0x2A3): keys, IME, timers, (non-client) mouse.
+    let mut msg = MSG::default();
+    for _ in 0..64 {
+        if !unsafe { PeekMessageW(&mut msg, None, 0x0100, WM_MOUSELEAVE, PM_REMOVE) }.as_bool() {
+            break;
+        }
+        unsafe {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
 fn pointer(hwnd: HWND, inside: bool) {
     APP.with(|a| a.borrow_mut().as_mut().map(|app| app.pointer(inside)));
     kick(hwnd);
@@ -554,6 +571,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // a WM_TIMER only fires every ~15.6 ms and gave uneven steps.
             unsafe {
                 let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+            }
+            // Back-to-back frames would starve the lower-priority messages (mouse, keys, timers):
+            // handle those now, or the notch could never see the pointer leave.
+            pump_input();
+            // The modules still need their polling (a peek expiring, new data) while frames run.
+            let now = crate::system::epoch_ms();
+            if now - LAST_POLL_MS.get() >= 100 {
+                LAST_POLL_MS.set(now);
+                poll_and_draw(hwnd);
             }
             tick(hwnd);
             LRESULT(0)
