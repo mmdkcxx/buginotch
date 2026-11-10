@@ -204,7 +204,7 @@ impl Module for UpdateModule {
         let checking = matches!(updater::state(), State::Checking);
         if self.was_checking && !checking && matches!(updater::state(), State::UpToDate { .. }) {
             self.peek_tile = ('✓', (52, 211, 153));
-            self.peek.show("IsleWin sudah terbaru".to_string(), now_ms, PEEK_MS);
+            self.peek.show("Buginotch sudah terbaru".to_string(), now_ms, PEEK_MS);
         }
         self.was_checking = checking;
         let before = self.peek.current(now_ms).is_some();
@@ -302,18 +302,18 @@ impl Module for UpdateModule {
                         glyph = ('✓', GREEN, Color(5, 46, 31, 255));
                         let hours = crate::settings_io::load();
                         let note = if hours.auto_update { format!("Pengecekan otomatis tiap {} jam.", hours.update_check_hours.max(1)) } else { "Pengecekan otomatis mati.".to_string() };
-                        ("IsleWin sudah terbaru".into(), format!("Versi {current} · dicek {}", clock_of(*at_ms, now_ms)), note)
+                        ("Buginotch sudah terbaru".into(), format!("Versi {current} · dicek {}", clock_of(*at_ms, now_ms)), note)
                     }
                     State::Available(r) => (format!("Update {} ditunda", r.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
                     State::Downloading { release, done, total } => {
                         let of = if *total > 0 { format!("{} dari {}", format_bytes(*done), format_bytes(*total)) } else { format_bytes(*done) };
-                        (format!("Mengunduh IsleWin {}", release.version), of, String::new())
+                        (format!("Mengunduh Buginotch {}", release.version), of, String::new())
                     }
                     State::Ready { release, .. } if self.snoozed => (format!("{} siap dipasang", release.version), "Tekan Lihat untuk melanjutkan".into(), String::new()),
                     State::Ready { release, .. } => {
                         glyph = ('✓', GREEN, Color(5, 46, 31, 255));
                         meta_color = Color(110, 231, 183, 255);
-                        let note = if updater::install_on_exit_pending() { "Akan dipasang saat Anda keluar dari IsleWin." } else { "IsleWin menutup sekitar 5 detik, memasang, lalu terbuka lagi sendiri." };
+                        let note = if updater::install_on_exit_pending() { "Akan dipasang saat Anda keluar dari Buginotch." } else { "Buginotch menutup sekitar 5 detik, memasang, lalu terbuka lagi sendiri." };
                         (format!("{} siap dipasang", release.version), "Terverifikasi · SHA-256 cocok".into(), note.into())
                     }
                     State::Failed { msg, .. } => {

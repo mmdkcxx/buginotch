@@ -23,10 +23,10 @@ mod usage;
 mod ui;
 mod window;
 
-/// Appends a line to `%TEMP%\isle-win.log` (the exe has no console).
+/// Appends a line to `%TEMP%\buginotch.log` (the exe has no console).
 pub(crate) fn log(line: &str) {
     use std::io::Write;
-    let path = std::env::temp_dir().join("isle-win.log");
+    let path = std::env::temp_dir().join("buginotch.log");
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{line}");
     }

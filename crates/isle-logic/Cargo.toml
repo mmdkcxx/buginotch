@@ -1,6 +1,6 @@
 [package]
 name = "isle-logic"
-description = "Platform-independent logic for Isle for Windows"
+description = "Platform-independent logic for Buginotch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

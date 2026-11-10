@@ -53,7 +53,8 @@ pub fn parse_release(json: &str) -> Option<Release> {
     let assets = v["assets"].as_array()?;
     let installer = assets.iter().find(|a| {
         let n = a["name"].as_str().unwrap_or("");
-        n.starts_with("IsleWin-Setup-") && n.ends_with(".exe")
+        // Releases made before the rename carry the old IsleWin- name.
+        (n.starts_with("Buginotch-Setup-") || n.starts_with("IsleWin-Setup-")) && n.ends_with(".exe")
     })?;
     let asset_name = installer["name"].as_str()?.to_string();
     let sha256 = installer["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).filter(|h| is_hex64(h)).map(str::to_ascii_lowercase);
@@ -237,6 +238,12 @@ mod tests {
         assert!(!is_newer("0.3.0", "0.4.0-beta"));
         assert_eq!(parse_version("1.2"), None);
         assert_eq!(parse_version("1.2.3.4"), None);
+    }
+
+    #[test]
+    fn a_release_with_the_new_installer_name_is_found() {
+        let json = RELEASE.replace("IsleWin-Setup-0.3.0.exe", "Buginotch-Setup-0.3.0.exe");
+        assert_eq!(parse_release(&json).unwrap().asset_name, "Buginotch-Setup-0.3.0.exe");
     }
 
     #[test]

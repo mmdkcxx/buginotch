@@ -35,7 +35,7 @@ impl Tray {
                 hIcon: LoadIconW(None, IDI_APPLICATION)?,
                 ..Default::default()
             };
-            let tip: Vec<u16> = "Isle".encode_utf16().collect();
+            let tip: Vec<u16> = "Buginotch".encode_utf16().collect();
             nid.szTip[..tip.len()].copy_from_slice(&tip);
             if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
                 return Err(Error::from(E_FAIL));

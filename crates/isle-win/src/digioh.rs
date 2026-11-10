@@ -213,7 +213,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 fn connect(room: &str) -> Result<Handle> {
     unsafe {
-        let session = handle(WinHttpOpen(w!("IsleWin-Timer"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
+        let session = handle(WinHttpOpen(w!("Buginotch-Timer"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
         WinHttpSetTimeouts(session.0, 10_000, 10_000, 15_000, 15_000)?;
         let h = wide(HOST);
         let conn = handle(WinHttpConnect(session.0, PCWSTR(h.as_ptr()), 443, 0))?;

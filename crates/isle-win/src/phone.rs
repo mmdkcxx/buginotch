@@ -249,7 +249,7 @@ fn handle(mut s: TcpStream, peer: SocketAddr, gen_id: u64) -> std::io::Result<()
         return respond(&mut s, 403, "text/plain; charset=utf-8", b"Server mati");
     }
     if !phone::token_matches(req.token(), &token) {
-        return respond(&mut s, 401, "text/plain; charset=utf-8", "Pindai ulang kode QR di IsleWin.".as_bytes());
+        return respond(&mut s, 401, "text/plain; charset=utf-8", "Pindai ulang kode QR di Buginotch.".as_bytes());
     }
     touch();
     match (req.method.as_str(), req.path.as_str()) {

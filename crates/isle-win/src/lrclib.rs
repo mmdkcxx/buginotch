@@ -29,7 +29,7 @@ pub(crate) fn check(h: *mut c_void) -> Result<Handle> {
 /// GET `path` on lrclib.net. `Ok(None)` on 404; an error for any other failure.
 fn get(path: &str) -> Result<Option<String>> {
     unsafe {
-        let session = check(WinHttpOpen(w!("IsleWin/0.1"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
+        let session = check(WinHttpOpen(w!("Buginotch/0.1"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
         WinHttpSetTimeouts(session.0, 5000, 5000, 5000, 5000)?;
         let connect = check(WinHttpConnect(session.0, w!("lrclib.net"), 443, 0))?;
         let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();

@@ -45,12 +45,12 @@ use windows::{
 };
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_VALUE: PCWSTR = w!("IsleWin");
+const RUN_VALUE: PCWSTR = w!("Buginotch");
 
 /// Returns false when another Isle is already running (named mutex).
 pub fn acquire_single_instance() -> bool {
     unsafe {
-        match CreateMutexW(None, false, w!("Local\\IsleWin")) {
+        match CreateMutexW(None, false, w!("Local\\Buginotch")) {
             Ok(handle) => {
                 let exists = GetLastError() == ERROR_ALREADY_EXISTS;
                 // Keep the handle open for the process lifetime.
@@ -74,7 +74,7 @@ pub fn is_autostart() -> bool {
     }
 }
 
-/// Adds or removes `HKCU\...\Run\IsleWin` pointing at this exe.
+/// Adds or removes `HKCU\...\Run\Buginotch` pointing at this exe.
 pub fn set_autostart(enabled: bool) -> Result<()> {
     unsafe {
         let mut key = HKEY::default();

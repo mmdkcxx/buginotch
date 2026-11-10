@@ -48,7 +48,7 @@ impl Window {
         unsafe {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
             let instance = GetModuleHandleW(None)?;
-            let class = w!("IsleWinNotch");
+            let class = w!("BuginotchNotch");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(wndproc),
                 hInstance: instance.into(),
@@ -60,7 +60,7 @@ impl Window {
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
                 class,
-                w!("Isle"),
+                w!("Buginotch"),
                 WS_POPUP,
                 0,
                 0,
@@ -399,10 +399,10 @@ fn glass_window(scale: f32) -> Option<HWND> {
     }
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
-        let class = w!("IsleWinGlass");
+        let class = w!("BuginotchGlass");
         let wc = WNDCLASSW { lpfnWndProc: Some(glass_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
         let _ = RegisterClassW(&wc);
-        let make = |extra: WINDOW_EX_STYLE| CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | extra, class, w!("Isle glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None);
+        let make = |extra: WINDOW_EX_STYLE| CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | extra, class, w!("Buginotch glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None);
         // First choice: a composition window with a real backdrop effect (blur 32 + saturate 170%).
         if std::env::var_os("ISLE_GLASS_ACCENT").is_none() {
             if let Ok(hwnd) = make(WS_EX_NOREDIRECTIONBITMAP) {

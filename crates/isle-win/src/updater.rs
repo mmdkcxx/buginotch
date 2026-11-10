@@ -130,7 +130,7 @@ pub fn install_now() {
     }
 }
 
-/// Install the downloaded update when IsleWin quits next.
+/// Install the downloaded update when Buginotch quits next.
 pub fn install_on_exit() {
     if let State::Ready { path, .. } = state() {
         *INSTALL_ON_EXIT.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
@@ -169,7 +169,7 @@ fn fake_state() -> Option<State> {
     let release = Release {
         version: "0.3.6".into(),
         notes: ["feat: Kaca gelap dan terang di menu tray", "feat: Widget pemakaian Claude", "fix: Sudut notch kaca lebih rapi", "Halaman Pembaruan tersembunyi saat tidak perlu", "Urutan widget bisa diatur"].map(String::from).to_vec(),
-        asset_name: "IsleWin-Setup-0.3.6.exe".into(),
+        asset_name: "Buginotch-Setup-0.3.6.exe".into(),
         asset_url: String::new(),
         size: 12_400_000,
         sha256: None,
@@ -277,7 +277,7 @@ fn download_release() {
         return fail("Rilis ini tidak menyertakan checksum, jadi tidak dipasang", &release);
     };
 
-    let dir = std::env::temp_dir().join("IsleWin-Update");
+    let dir = std::env::temp_dir().join("Buginotch-Update");
     let _ = std::fs::remove_dir_all(&dir);
     if std::fs::create_dir_all(&dir).is_err() {
         return fail("Folder sementara tidak bisa dibuat", &release);
@@ -326,7 +326,7 @@ fn wide(s: &str) -> Vec<u16> {
 /// `follow` (a download redirect must be taken by hand so the token is not sent along).
 fn request(host: &str, path: &str, headers: &[(&str, &str)], follow: bool) -> Result<Response> {
     unsafe {
-        let session = handle(WinHttpOpen(w!("IsleWin-Updater"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
+        let session = handle(WinHttpOpen(w!("Buginotch-Updater"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
         WinHttpSetTimeouts(session.0, 10_000, 10_000, 15_000, 30_000)?;
         let h = wide(host);
         let conn = handle(WinHttpConnect(session.0, PCWSTR(h.as_ptr()), 443, 0))?;

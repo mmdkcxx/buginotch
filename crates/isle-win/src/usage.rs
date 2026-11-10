@@ -174,7 +174,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 fn fetch(c: &Credentials) -> Result<Fetched> {
     unsafe {
-        let session = handle(WinHttpOpen(w!("IsleWin-Usage"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
+        let session = handle(WinHttpOpen(w!("Buginotch-Usage"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0))?;
         WinHttpSetTimeouts(session.0, 10_000, 10_000, 15_000, 20_000)?;
         let conn = handle(WinHttpConnect(session.0, w!("api.anthropic.com"), 443, 0))?;
         let path = wide("/api/oauth/usage");
