@@ -73,7 +73,7 @@ fn effect(id: GUID, props: Vec<Prop>, source: IGraphicsEffectSource) -> IGraphic
 
 /// What keeps the composition alive for one window.
 pub struct Backdrop {
-    _controller: DispatcherQueueController,
+    _controller: Option<DispatcherQueueController>,
     _compositor: Compositor,
     _target: DesktopWindowTarget,
     _visual: SpriteVisual,
@@ -84,11 +84,16 @@ pub struct Backdrop {
 /// `hwnd` must have been created with WS_EX_NOREDIRECTIONBITMAP.
 pub fn attach(hwnd: HWND, blur: f32, saturation: f32) -> windows::core::Result<Backdrop> {
     unsafe {
-        let controller = CreateDispatcherQueueController(DispatcherQueueOptions {
-            dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
-            threadType: DQTYPE_THREAD_CURRENT,
-            apartmentType: DQTAT_COM_NONE,
-        })?;
+        // One dispatcher queue per thread: a second glass window on this thread reuses it.
+        let controller = if windows::System::DispatcherQueue::GetForCurrentThread().is_ok() {
+            None
+        } else {
+            Some(CreateDispatcherQueueController(DispatcherQueueOptions {
+                dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
+                threadType: DQTYPE_THREAD_CURRENT,
+                apartmentType: DQTAT_COM_NONE,
+            })?)
+        };
         let compositor = Compositor::new().map_err(|e| step(1, e))?;
         let interop: ICompositorDesktopInterop = compositor.cast().map_err(|e| step(2, e))?;
         let target = interop.CreateDesktopWindowTarget(hwnd, true).map_err(|e| step(3, e))?;

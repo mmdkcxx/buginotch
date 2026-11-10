@@ -210,6 +210,31 @@ impl App {
         self.settings.glass_light = light;
     }
 
+    /// Pages the settings window can reorder: (id, title), in the current order.
+    pub fn page_list(&mut self) -> Vec<(String, String)> {
+        self.registry.modules_mut().iter().filter(|m| m.has_page() && m.id() != "update").map(|m| (m.id().to_string(), m.title().to_string())).collect()
+    }
+
+    /// Takes settings edited in the settings window: look, order and the values read live.
+    /// Pomodoro, lyrics lead and the world clocks are read once at start and wait for a restart.
+    pub fn apply_settings(&mut self, s: isle_logic::settings::Settings) {
+        let here = self.registry.current_page_id();
+        self.registry.reorder(&s.page_order);
+        if let Some(id) = here {
+            self.registry.goto_id(id);
+        }
+        self.settings.glass = s.glass;
+        self.settings.glass_light = s.glass_light;
+        self.settings.pill_width = s.pill_width;
+        self.settings.pill_height = s.pill_height;
+        self.settings.rest_after_secs = s.rest_after_secs;
+        self.settings.auto_update = s.auto_update;
+        self.settings.update_check_hours = s.update_check_hours;
+        self.settings.update_repo = s.update_repo;
+        self.settings.update_token = s.update_token;
+        self.settings.page_order = s.page_order;
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }

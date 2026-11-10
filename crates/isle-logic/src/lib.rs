@@ -24,6 +24,7 @@ pub mod phone;
 pub mod rest;
 pub mod pomodoro;
 pub mod settings;
+pub mod settings_view;
 pub mod spring;
 pub mod timer_store;
 pub mod track_card;

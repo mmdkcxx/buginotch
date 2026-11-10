@@ -16,6 +16,7 @@ mod modules;
 mod power;
 mod renderer;
 mod settings_io;
+mod settings_win;
 mod system;
 mod tray;
 mod updater;

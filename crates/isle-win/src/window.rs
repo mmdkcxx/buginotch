@@ -3,7 +3,7 @@
 
 use crate::app::App;
 use crate::renderer::Renderer;
-use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_GLASS, ID_GLASS_LIGHT, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
+use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_GLASS, ID_GLASS_LIGHT, ID_QUIT, ID_SETTINGS, ID_UPDATE, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
 use isle_logic::module::Event;
 use std::cell::RefCell;
@@ -103,6 +103,11 @@ impl Window {
             crate::updater::set_hwnd(hwnd);
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             draw(hwnd);
+            if std::env::var_os("ISLE_OPEN_SETTINGS").is_some() {
+                // For tests and screenshots: open the settings window right away.
+                let pages = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.page_list())).unwrap_or_default();
+                crate::settings_win::open(hwnd, pages);
+            }
             Ok(Window { hwnd })
         }
     }
@@ -346,7 +351,7 @@ struct CompositionAttribute {
 
 /// Asks the system to blur what is behind a window (an undocumented but long-standing call, the
 /// one Windows' own blurred surfaces use). `state` 0 turns it off, 3 is plain blur.
-fn set_backdrop_blur(hwnd: HWND, state: u32) {
+pub(crate) fn set_backdrop_blur(hwnd: HWND, state: u32) {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
     unsafe {
         let Ok(user32) = GetModuleHandleW(w!("user32.dll")) else { return };
@@ -389,6 +394,32 @@ pub(crate) fn glass_log(msg: &str) {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::path::Path::new(&dir).join("isle-glass.log")) {
             let _ = writeln!(f, "{msg}");
         }
+    }
+}
+
+/// A separate glass window for another top-level window (the settings window): the same
+/// composition backdrop, or the system's accent blur when that is not available. Not topmost.
+pub(crate) fn new_glass(scale: f32) -> Option<(HWND, Option<crate::backdrop::Backdrop>)> {
+    unsafe {
+        let instance = GetModuleHandleW(None).ok()?;
+        let class = w!("BuginotchGlass");
+        let wc = WNDCLASSW { lpfnWndProc: Some(glass_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
+        let _ = RegisterClassW(&wc);
+        let make = |extra: WINDOW_EX_STYLE| CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | extra, class, w!("Buginotch glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None);
+        if std::env::var_os("ISLE_GLASS_ACCENT").is_none() {
+            if let Ok(hwnd) = make(WS_EX_NOREDIRECTIONBITMAP) {
+                match crate::backdrop::attach(hwnd, 32.0 * scale, 1.7) {
+                    Ok(b) => return Some((hwnd, Some(b))),
+                    Err(e) => {
+                        glass_log(&format!("settings backdrop failed: {e}"));
+                        let _ = DestroyWindow(hwnd);
+                    }
+                }
+            }
+        }
+        let hwnd = make(WINDOW_EX_STYLE(0)).ok()?;
+        set_backdrop_blur(hwnd, 3);
+        Some((hwnd, None))
     }
 }
 
@@ -730,6 +761,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     tray::toggle_autostart();
                     save_settings();
                 }
+                ID_SETTINGS => {
+                    let pages = APP.with(|a| a.borrow_mut().as_mut().map(|app| app.page_list())).unwrap_or_default();
+                    crate::settings_win::open(hwnd, pages);
+                }
                 ID_UPDATE => crate::updater::check_now(),
                 id @ (ID_GLASS | ID_GLASS_LIGHT) => {
                     // Picking the active style again turns the glass off; otherwise it switches to it.
@@ -850,6 +885,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // The user clicked elsewhere: end the edit.
             send_text_event(hwnd, Event::Edit { key: isle_logic::module::EditKey::Escape, shift: false });
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        crate::settings_win::WM_APP_SETTINGS => {
+            let s = crate::settings_io::load();
+            APP.with(|a| {
+                if let Some(app) = a.borrow_mut().as_mut() {
+                    app.apply_settings(s);
+                }
+            });
+            place_window(hwnd);
+            apply_window_size(hwnd);
+            draw(hwnd);
+            LRESULT(0)
         }
         WM_MOUSEWHEEL => {
             let steps = ((wparam.0 >> 16) as i16) as f32 / 120.0;
