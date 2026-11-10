@@ -6,65 +6,90 @@
 <meta name="color-scheme" content="dark light">
 <title>Isle Shelf</title>
 <style>
-:root{--bg:#0b0d10;--card:#14161a;--line:#262a31;--fg:#f5f6f8;--dim:#8b9099;--blue:#3b82f6;--green:#34d399;--red:#f87171}
-@media (prefers-color-scheme: light){:root{--bg:#f2f4f7;--card:#fff;--line:#dde1e7;--fg:#14171c;--dim:#5b626d}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
-main{max-width:520px;margin:0 auto}
-h1{font-size:22px;margin:8px 0 4px}
-.ok{color:var(--green);font-size:13px;display:flex;align-items:center;gap:6px}
-.ok:before{content:"";width:8px;height:8px;border-radius:4px;background:currentColor}
-.bad{color:var(--red)}
-.pick{display:flex;gap:10px;margin:18px 0 6px}
-.btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:0;border-radius:14px;background:var(--blue);color:#04122a;font:inherit;font-weight:700;cursor:pointer}
-.btn.alt{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+:root{--bg:#f4f6fa;--card:#fff;--card2:#eef1f6;--line:#dfe3ea;--fg:#14171c;--dim:#6a717d;--blue:#2563eb;--blue2:#1d4ed8;--green:#12a06a;--red:#e5484d;--glow:rgba(37,99,235,.20);--zone:#fff}
+@media (prefers-color-scheme: dark){:root{--bg:#0a0c10;--card:#12151b;--card2:#1a1f29;--line:#1f2530;--fg:#f4f6fa;--dim:#8d95a3;--blue:#5b9bff;--blue2:#2f6df0;--green:#34d399;--red:#ff6b70;--glow:rgba(59,130,246,.38);--zone:#131a2a}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;min-height:100vh;padding:max(18px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));position:relative;overflow-x:hidden}
+body:before{content:"";position:absolute;left:-40px;right:-40px;top:-60px;height:300px;background:radial-gradient(60% 60% at 50% 40%,var(--glow),transparent 70%);pointer-events:none}
+main{max-width:480px;margin:0 auto;position:relative}
+.head{display:flex;align-items:center;justify-content:space-between}
+h1{font-size:22px;margin:0;font-weight:800;letter-spacing:-.01em}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent);padding:6px 11px;border-radius:99px}
+.live i{width:7px;height:7px;border-radius:4px;background:currentColor}
+.live.bad{color:var(--red);background:color-mix(in srgb,var(--red) 14%,transparent)}
+.pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;width:100%;margin-top:22px;height:196px;border:1px solid var(--line);border-radius:28px;background:var(--zone);color:var(--fg);font:inherit;cursor:pointer}
+.pick .big{width:72px;height:72px;border-radius:36px;background:linear-gradient(180deg,var(--blue),var(--blue2));display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -6px var(--blue2)}
+.pick b{font-size:17px;font-weight:700}
+.pick small{font-size:12.5px;color:var(--dim);margin-top:-8px}
+.pick:active .big{transform:scale(.96)}
+.pick.drag{border-color:var(--blue)}
 input[type=file]{display:none}
-h2{font-size:12px;letter-spacing:.05em;color:var(--dim);margin:22px 2px 8px;text-transform:uppercase}
-.row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
-.row .n{flex:1;min-width:0}
-.row .n b{display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .n small{color:var(--dim);font-size:12px}
-.row a{color:var(--blue);font-weight:700;text-decoration:none;padding:6px 4px}
-.bar{height:4px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
-.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .15s}
-.empty{color:var(--dim);font-size:14px;padding:6px 2px}
+h2{font-size:11.5px;letter-spacing:.08em;color:var(--dim);margin:24px 2px 9px;text-transform:uppercase;font-weight:700}
+.item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:11px 13px;margin-bottom:9px}
+.ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;color:#fff;flex-shrink:0;background:#6b7280}
+.n{flex:1;min-width:0}
+.n b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n small{font-size:12px;color:var(--dim)}
+.n small.bad{color:var(--red)}
+.n small.ok{color:var(--green)}
+.bar{height:4px;border-radius:2px;background:var(--card2);margin-top:7px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--blue);border-radius:2px;transition:width .15s}
+.dl{flex-shrink:0;width:36px;height:36px;border-radius:18px;background:var(--card2);display:flex;align-items:center;justify-content:center;text-decoration:none}
+.empty{color:var(--dim);font-size:13.5px;padding:4px 2px;line-height:1.5}
 </style>
 </head>
 <body>
 <main>
-<h1>Isle Shelf</h1>
-<div id="st" class="ok">Terhubung ke PC</div>
-<div class="pick">
-<label class="btn" for="media">Foto dan video</label>
-<label class="btn alt" for="other">File lain</label>
-</div>
-<!-- Photos only offer JPEG/PNG here, so iOS converts HEIC photos to JPEG as they are picked. -->
-<input id="media" type="file" multiple accept="image/jpeg,image/png,video/*">
-<input id="other" type="file" multiple>
-<div id="up"></div>
+<div class="head"><h1>Isle Shelf</h1><span id="st" class="live"><i></i><span>Terhubung</span></span></div>
+<label class="pick" id="pick" for="file">
+<span class="big"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+<b>Tambah file</b><small>Foto, video, atau file apa saja ke PC</small>
+</label>
+<input id="file" type="file" multiple>
+<div id="upwrap" hidden><h2>Dikirim</h2><div id="up"></div></div>
 <h2>Dari PC</h2>
 <div id="down"><div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div></div>
 </main>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
-  var T = q.get("t") || sessionStorage.getItem("t") || "";
-  try { sessionStorage.setItem("t", T); } catch (e) {}
-  var up = document.getElementById("up"), down = document.getElementById("down"), st = document.getElementById("st");
+  var T = q.get("t") || "";
+  try { if (T) sessionStorage.setItem("t", T); else T = sessionStorage.getItem("t") || ""; } catch (e) {}
+  var up = document.getElementById("up"), upwrap = document.getElementById("upwrap"), down = document.getElementById("down"), st = document.getElementById("st");
   var queue = [], busy = false;
+  var COLORS = {pdf: "#e5484d", png: "#22a559", jpg: "#2f80c9", jpeg: "#2f80c9", heic: "#c98a2f", mov: "#4b5563", mp4: "#4b5563", zip: "#8b5cf6", txt: "#6b7280", doc: "#2563eb", docx: "#2563eb", xls: "#16a34a", xlsx: "#16a34a"};
+  function ext(n) { var m = /\.([^.]+)$/.exec(n); return m ? m[1].toLowerCase() : ""; }
+  function tile(n) { var e = ext(n); return '<div class="ic" style="background:' + (COLORS[e] || "#6b7280") + '">' + (e.slice(0, 4).toUpperCase() || "FILE") + '</div>'; }
   function size(n) {
     if (n < 1024) return n + " B";
     if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
     if (n < 1073741824) return (n / 1048576).toFixed(1).replace(".", ",") + " MB";
     return (n / 1073741824).toFixed(2).replace(".", ",") + " GB";
   }
-  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function esc(s) { return s.replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
+
+  // Safari can show HEIC photos, so redraw them as JPEG before sending. Other browsers send the file as it is.
+  function heicToJpeg(f) {
+    return new Promise(function (resolve) {
+      var u = URL.createObjectURL(f), im = new Image();
+      im.onload = function () {
+        var w = im.naturalWidth, h = im.naturalHeight, k = Math.min(1, Math.sqrt(16000000 / (w * h)));
+        var c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+        c.toBlob(function (b) { URL.revokeObjectURL(u); resolve(b && b.size > 0 ? b : null); }, "image/jpeg", 0.92);
+      };
+      im.onerror = function () { URL.revokeObjectURL(u); resolve(null); };
+      im.src = u;
+    });
+  }
+
   function add(files) {
     for (var i = 0; i < files.length; i++) {
-      var f = files[i], row = el("div", "row");
-      row.innerHTML = '<div class="n"><b>' + esc(f.name) + '</b><small>' + size(f.size) + ' · menunggu</small><div class="bar"><i></i></div></div>';
+      var f = files[i], row = document.createElement("div");
+      row.className = "item";
+      row.innerHTML = tile(f.name) + '<div class="n"><b>' + esc(f.name) + '</b><small>' + size(f.size) + ' · menunggu</small><div class="bar"><i></i></div></div>';
       up.insertBefore(row, up.firstChild);
+      upwrap.hidden = false;
       queue.push({file: f, row: row});
     }
     next();
@@ -72,42 +97,60 @@ h2{font-size:12px;letter-spacing:.05em;color:var(--dim);margin:22px 2px 8px;text
   function next() {
     if (busy || !queue.length) return;
     busy = true;
-    var job = queue.shift(), f = job.file, small = job.row.querySelector("small"), bar = job.row.querySelector("i");
-    var x = new XMLHttpRequest();
-    x.open("POST", "/api/upload?name=" + encodeURIComponent(f.name));
-    x.setRequestHeader("X-Token", T);
-    x.upload.onprogress = function (e) {
-      if (e.lengthComputable) { bar.style.width = (100 * e.loaded / e.total) + "%"; small.textContent = size(e.loaded) + " dari " + size(e.total); }
-    };
-    function end(ok, msg) {
-      busy = false;
-      bar.style.width = ok ? "100%" : "0";
-      small.textContent = ok ? size(f.size) + " · terkirim ke PC" : msg;
-      if (!ok) small.className = "bad";
-      next();
+    var job = queue.shift(), f = job.file, name = f.name, body = f;
+    var small = job.row.querySelector("small"), bar = job.row.querySelector("i"), label = job.row.querySelector("b");
+    function go() {
+      var x = new XMLHttpRequest();
+      x.open("POST", "/api/upload?name=" + encodeURIComponent(name));
+      x.setRequestHeader("X-Token", T);
+      x.upload.onprogress = function (e) {
+        if (e.lengthComputable) { bar.style.width = (100 * e.loaded / e.total) + "%"; small.textContent = size(e.loaded) + " dari " + size(e.total); }
+      };
+      function end(ok, msg) {
+        busy = false;
+        bar.style.width = ok ? "100%" : "0";
+        small.textContent = ok ? size(body.size) + " · terkirim ke PC" : msg;
+        small.className = ok ? "ok" : "bad";
+        next();
+      }
+      x.onload = function () { end(x.status === 200, x.status === 413 ? "Terlalu besar (maks 2 GB)" : x.status === 401 ? "Pindai ulang kode QR di PC" : "Gagal (" + x.status + ")"); };
+      x.onerror = function () { end(false, "Gagal, PC tidak terjangkau"); };
+      x.send(body);
     }
-    x.onload = function () { end(x.status === 200, x.status === 413 ? "Terlalu besar (maks 2 GB)" : "Gagal (" + x.status + ")"); };
-    x.onerror = function () { end(false, "Gagal, PC tidak terjangkau"); };
-    x.send(f);
+    if (/^(heic|heif)$/.test(ext(name))) {
+      small.textContent = "Mengubah ke JPG…";
+      heicToJpeg(f).then(function (b) {
+        if (b) { body = b; name = name.replace(/\.[^.]+$/, ".jpg"); label.textContent = name; job.row.firstChild.outerHTML = tile(name); }
+        go();
+      });
+    } else {
+      go();
+    }
   }
-  ["media", "other"].forEach(function (id) {
-    var inp = document.getElementById(id);
-    inp.onchange = function () { add(inp.files); inp.value = ""; };
-  });
+  var inp = document.getElementById("file");
+  inp.onchange = function () { add(inp.files); inp.value = ""; };
+  var pick = document.getElementById("pick");
+  pick.ondragover = function (e) { e.preventDefault(); pick.classList.add("drag"); };
+  pick.ondragleave = function () { pick.classList.remove("drag"); };
+  pick.ondrop = function (e) { e.preventDefault(); pick.classList.remove("drag"); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
+
+  var DL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12"/><path d="M6.5 11.5L12 17l5.5-5.5"/><path d="M5 20h14"/></svg>';
+  var EMPTY = '<div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div>';
+  var last = "";
   function refresh() {
     fetch("/api/list", {headers: {"X-Token": T}}).then(function (r) {
       if (!r.ok) throw 0;
-      st.className = "ok"; st.textContent = "Terhubung ke PC";
+      st.className = "live"; st.lastChild.textContent = "Terhubung";
       return r.json();
     }).then(function (items) {
-      if (!items.length) { down.innerHTML = '<div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div>'; return; }
-      down.innerHTML = "";
-      items.forEach(function (it) {
-        var row = el("div", "row");
-        row.innerHTML = '<div class="n"><b>' + esc(it.name) + '</b><small>' + size(it.size) + '</small></div><a download="' + esc(it.name) + '" href="/f/' + it.id + '?t=' + encodeURIComponent(T) + '">Unduh</a>';
-        down.appendChild(row);
-      });
-    }).catch(function () { st.className = "ok bad"; st.textContent = "Terputus. Pindai kode QR lagi di PC."; });
+      var key = JSON.stringify(items);
+      if (key === last) return;
+      last = key;
+      if (!items.length) { down.innerHTML = EMPTY; return; }
+      down.innerHTML = items.map(function (it) {
+        return '<div class="item">' + tile(it.name) + '<div class="n"><b>' + esc(it.name) + '</b><small>' + size(it.size) + '</small></div><a class="dl" aria-label="Unduh" download="' + esc(it.name) + '" href="/f/' + it.id + '?t=' + encodeURIComponent(T) + '">' + DL + '</a></div>';
+      }).join("");
+    }).catch(function () { st.className = "live bad"; st.lastChild.textContent = "Terputus"; });
   }
   refresh();
   setInterval(refresh, 4000);
