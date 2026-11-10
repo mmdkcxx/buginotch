@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "isle-logic"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "isle-win"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "image",
  "isle-logic",

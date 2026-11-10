@@ -73,11 +73,14 @@ pub fn tile_color(app: &str) -> (u8, u8, u8) {
     PALETTE[h as usize % PALETTE.len()]
 }
 
+/// How fast overflowing text scrolls.
+pub const SCROLL_PX_PER_S: f32 = 48.0;
+
 /// How far (px) to shift text that overflows by `overflow` px, `elapsed_ms` after it appeared:
 /// rest, glide to the end at a steady speed, rest, then start over.
 pub fn scroll_offset(overflow: f32, elapsed_ms: i64) -> f32 {
     const REST_MS: f32 = 1500.0;
-    const PX_PER_S: f32 = 32.0;
+    const PX_PER_S: f32 = SCROLL_PX_PER_S;
     if overflow <= 0.0 {
         return 0.0;
     }
@@ -94,10 +97,11 @@ mod tests {
     fn scroll_rests_then_reaches_the_end_then_restarts() {
         assert_eq!(scroll_offset(100.0, 0), 0.0);
         assert_eq!(scroll_offset(100.0, 1400), 0.0);
-        let mid = scroll_offset(100.0, 1500 + 1000);
+        let mid = scroll_offset(100.0, 1500 + 500);
         assert!(mid > 0.0 && mid < 100.0);
-        assert_eq!(scroll_offset(100.0, 1500 + 3125 + 500), 100.0);
-        assert_eq!(scroll_offset(100.0, 1500 + 3125 + 1500), 0.0);
+        let glide = (100.0 / SCROLL_PX_PER_S * 1000.0) as i64 + 1;
+        assert_eq!(scroll_offset(100.0, 1500 + glide + 500), 100.0);
+        assert_eq!(scroll_offset(100.0, 1500 + glide + 1500), 0.0);
         assert_eq!(scroll_offset(0.0, 5000), 0.0);
     }
 

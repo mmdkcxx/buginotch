@@ -38,6 +38,8 @@ pub enum Event {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PillItem {
     MiniCover(ImageId),
+    /// The app a notification came from: its logo, or a coloured letter when there is none.
+    AppTile { image: Option<ImageId>, letter: char, color: (u8, u8, u8) },
     Equaliser { active: bool },
 }
 

@@ -434,8 +434,25 @@ impl App {
                 }
                 let alpha = a_text as f32 / 255.0;
                 // Left: album art. Right: equaliser. Middle: the text above.
-                for item in self.registry.pill_items() {
+                let items = self.registry.pill_items();
+                let has_tile = items.iter().any(|i| matches!(i, PillItem::AppTile { .. }));
+                for item in items {
                     match item {
+                        // A notification's logo takes the cover's place while it shows.
+                        PillItem::MiniCover(_) if has_tile => {}
+                        PillItem::AppTile { image, letter, color } => {
+                            let r = Rect { x: x + 10.0, y: (base_h - 16.0) / 2.0, w: 16.0, h: 16.0 };
+                            match image {
+                                Some(id) => {
+                                    c.fill_round_rect(r, 4.0, Color(43, 47, 54, a_text));
+                                    c.draw_image_alpha(id, r, 4.0, alpha);
+                                }
+                                None => {
+                                    c.fill_round_rect(r, 4.0, Color(color.0, color.1, color.2, a_text));
+                                    c.draw_text(&letter.to_string(), Rect { y: r.y + 1.0, h: 14.0, ..r }, 10.0, 700, Color(245, 246, 248, a_text), Align::Center);
+                                }
+                            }
+                        }
                         PillItem::MiniCover(id) => {
                             c.draw_image_alpha(id, Rect { x: x + 10.0, y: (base_h - 15.0) / 2.0, w: 15.0, h: 15.0 }, 4.0, alpha);
                         }

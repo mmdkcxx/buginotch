@@ -7,7 +7,7 @@ use crate::system::{epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_lines};
 use std::collections::HashMap;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
-use isle_logic::notifs::{Feed, Notif, arrange, letter, scroll_offset, snippet, tile_color};
+use isle_logic::notifs::{Feed, Notif, arrange, letter, scroll_offset, snippet, tile_color, SCROLL_PX_PER_S};
 use isle_logic::peek::Peek;
 use isle_logic::timefmt::format_clock;
 
@@ -27,7 +27,7 @@ const PX_PER_CHAR: f32 = 7.4;
 /// How long a peek of `text` stays: long enough to rest, scroll to the end and rest again.
 fn peek_ms(text: &str) -> i64 {
     let overflow = (text.chars().count() as f32 * PX_PER_CHAR - PILL_ROOM_PX).max(0.0);
-    (3000 + (overflow / 32.0 * 1000.0) as i64).clamp(PEEK_MS, 20_000)
+    (3000 + (overflow / SCROLL_PX_PER_S * 1000.0) as i64).clamp(PEEK_MS, 20_000)
 }
 
 pub struct NotificationsModule {
@@ -41,6 +41,8 @@ pub struct NotificationsModule {
     swap: Option<(Vec<(u32, Spot)>, i64)>,
     /// The card now in the large slot and when it got there, to time the scrolling of long text.
     shown: Option<(u32, i64)>,
+    /// The app of the notification the pill is showing, for the logo at the pill's left.
+    peek_app: Option<String>,
     /// When the panel was last drawn, and whether some text on it is currently scrolling.
     last_draw_ms: i64,
     scrolling: bool,
@@ -95,7 +97,7 @@ fn placements(items: &[Notif], selected: Option<u32>) -> Vec<(usize, Spot)> {
 impl NotificationsModule {
     pub fn new() -> Self {
         notif_win::spawn();
-        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swap: None, shown: None, last_draw_ms: i64::MIN / 2, scrolling: false }
+        Self { feed: Feed::default(), peek: Peek::default(), icons: HashMap::new(), selected: None, swap: None, shown: None, peek_app: None, last_draw_ms: i64::MIN / 2, scrolling: false }
     }
 
     fn swapping(&self, now_ms: i64) -> bool {
@@ -198,6 +200,22 @@ impl Module for NotificationsModule {
     fn pill_left(&self) -> Option<PillItem> {
         None
     }
+    fn pill_items(&self) -> Vec<PillItem> {
+        match (&self.peek_app, self.peek.current(epoch_ms())) {
+            (Some(app), Some(_)) => vec![PillItem::AppTile { image: self.icons.get(app).copied().flatten(), letter: letter(app), color: tile_color(app) }],
+            _ => Vec::new(),
+        }
+    }
+    fn prepare(&mut self, c: &mut dyn Canvas) {
+        // The pill shows the app's logo while a notification peeks, even before the panel was ever drawn.
+        if let Some(app) = self.peek_app.clone() {
+            if self.icons.get(&app).is_none_or(|i| i.is_none()) {
+                if let Some(ic) = notif_win::icon(&app) {
+                    self.icons.insert(app, Some(c.load_image(&ic.rgba, ic.w, ic.h)));
+                }
+            }
+        }
+    }
     fn pill_center(&self) -> Option<String> {
         self.peek.current(epoch_ms()).map(str::to_string)
     }
@@ -219,6 +237,7 @@ impl Module for NotificationsModule {
                 self.selected = None;
                 self.swap = None;
                 let text = short(&snippet(newest), PILL_CHARS);
+                self.peek_app = Some(newest.app.clone());
                 let ms = peek_ms(&text);
                 self.peek.show(text, now_ms, ms);
             }
