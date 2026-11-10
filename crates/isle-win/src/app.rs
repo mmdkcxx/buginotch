@@ -5,6 +5,7 @@ use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerM
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
+use isle_logic::notifs::scroll_offset;
 use isle_logic::chrome::{ChromeAction, chrome_hit};
 use isle_logic::headphones::{Level, battery_anim, level_of};
 use isle_logic::module::{Event, PillBattery, PillCard, PillItem, Reaction};
@@ -59,6 +60,9 @@ pub struct App {
     card: bool,
     /// Width the closed pill needs for a long centre text (a peek); 0 when the usual width does.
     text_w: f32,
+    /// When the pill's centre text last changed (epoch ms), and when it was last drawn scrolling.
+    pill_since: i64,
+    pill_rolling_ms: i64,
     /// What the card shows; kept while it shrinks back so it can fade out.
     card_last: Option<PillCard>,
     /// The pill shows only the clock, so it may fall asleep; the last time it did not (now_ms).
@@ -100,6 +104,8 @@ impl App {
             trans: None,
             card: false,
             text_w: 0.0,
+            pill_since: 0,
+            pill_rolling_ms: i64::MIN / 2,
             card_last: None,
             rest_ok: false,
             last_active: 0,
@@ -190,7 +196,10 @@ impl App {
         // Room for the text between the cover (left) and the equaliser (right).
         let chars = text.chars().count();
         let battery = self.registry.pill_battery(epoch_ms());
-        let text_w = if chars > 6 || battery.is_some() { chars as f32 * 7.4 + 72.0 + if battery.is_some() { 62.0 } else { 0.0 } } else { 0.0 };
+        let text_w = if chars > 6 || battery.is_some() { (chars as f32 * 7.4 + 72.0).min(PILL_MAX_TEXT_W) + if battery.is_some() { 62.0 } else { 0.0 } } else { 0.0 };
+        if text_changed {
+            self.pill_since = epoch_ms();
+        }
         let width_changed = text_w != self.text_w;
         self.text_w = text_w;
         self.last_pill = text;
@@ -235,7 +244,9 @@ impl App {
         } else {
             None
         };
-        [self.registry.earliest_wake(now), eq, eyes].into_iter().flatten().min()
+        // Long pill text scrolls: a timer-paced redraw (not a vsync loop, which would starve the mouse).
+        let rolling = (now - self.pill_rolling_ms < 120).then_some(now + 33);
+        [self.registry.earliest_wake(now), eq, eyes, rolling].into_iter().flatten().min()
     }
 
     /// How far the pill has fallen asleep (0 awake .. 1 eyes fully shown).
@@ -405,9 +416,20 @@ impl App {
                 let (text, accent) = self.registry.pill_text(&clock);
                 let color = if accent { Color(52, 211, 153, a_text) } else { Color(245, 246, 248, a_text) };
                 let room = Rect { x: x + 30.0, y: 0.0, w: (w - 60.0).max(1.0), h: base_h };
-                let text = fit_text(c, &text, 12.0, 600, room.w);
+                let full_w = c.measure_text(&text, 12.0, 600);
                 match self.registry.pill_battery(epoch_ms()) {
-                    Some(b) => draw_text_with_battery(c, &text, room, base_h, color, a, b, epoch_ms()),
+                    Some(b) => {
+                        let text = fit_text(c, &text, 12.0, 600, room.w);
+                        draw_text_with_battery(c, &text, room, base_h, color, a, b, epoch_ms())
+                    }
+                    None if full_w > room.w => {
+                        // Too long for the pill: glide the text sideways until its end shows.
+                        self.pill_rolling_ms = epoch_ms();
+                        let dx = scroll_offset(full_w - room.w, epoch_ms() - self.pill_since);
+                        c.push_clip(room, 0.0);
+                        c.draw_text(&text, Rect { x: room.x - dx, w: full_w + 24.0, ..room }, 12.0, 600, color, Align::Left);
+                        c.pop_clip();
+                    }
                     None => c.draw_text(&text, room, 12.0, 600, color, Align::Center),
                 }
                 let alpha = a_text as f32 / 255.0;
@@ -539,6 +561,9 @@ impl App {
         Step { opened, fully_closed, keep_ticking: !settled || hover_pending || sliding }
     }
 }
+
+/// The closed pill grows for a long peek only up to this width; beyond it the text scrolls.
+const PILL_MAX_TEXT_W: f32 = 330.0;
 
 fn closed_dims(settings: &Settings, wide: bool) -> (f32, f32, f32) {
     let w = if wide { settings.pill_width + 44.0 } else { settings.pill_width };

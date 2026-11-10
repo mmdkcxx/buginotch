@@ -18,7 +18,17 @@ const CARD: Color = Color(20, 22, 26, 255);
 const GAP: f32 = 12.0;
 const SMALL_GAP: f32 = 6.0;
 const PEEK_MS: i64 = 5000;
-const PILL_CHARS: usize = 38;
+/// Longest text kept for the pill peek; the pill shows it scrolling when it does not fit.
+const PILL_CHARS: usize = 160;
+/// Room the pill has for text (px) and a rough width per character, to time the scroll.
+const PILL_ROOM_PX: f32 = 270.0;
+const PX_PER_CHAR: f32 = 7.4;
+
+/// How long a peek of `text` stays: long enough to rest, scroll to the end and rest again.
+fn peek_ms(text: &str) -> i64 {
+    let overflow = (text.chars().count() as f32 * PX_PER_CHAR - PILL_ROOM_PX).max(0.0);
+    (3000 + (overflow / 32.0 * 1000.0) as i64).clamp(PEEK_MS, 20_000)
+}
 
 pub struct NotificationsModule {
     feed: Feed,
@@ -208,7 +218,9 @@ impl Module for NotificationsModule {
             if let Some(newest) = fresh.first() {
                 self.selected = None;
                 self.swap = None;
-                self.peek.show(short(&snippet(newest), PILL_CHARS), now_ms, PEEK_MS);
+                let text = short(&snippet(newest), PILL_CHARS);
+                let ms = peek_ms(&text);
+                self.peek.show(text, now_ms, ms);
             }
         }
         changed || self.peek.current(now_ms).is_some() != before
@@ -288,7 +300,9 @@ impl Module for NotificationsModule {
         // Keep frames coming while the cards trade places.
         let moving = self.swapping(now_ms).then_some(now_ms + 16);
         // Long text is scrolling while this page is on screen (it was drawn a moment ago).
-        let rolling = (self.scrolling && now_ms - self.last_draw_ms < 100).then_some(now_ms + 16);
+        // 33 ms (timer path), not per-vsync: a back-to-back frame loop would starve mouse input and
+        // the notch could never see the pointer leave.
+        let rolling = (self.scrolling && now_ms - self.last_draw_ms < 120).then_some(now_ms + 33);
         [self.peek.wake_after(now_ms), moving, rolling].into_iter().flatten().min()
     }
 }
