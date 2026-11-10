@@ -77,63 +77,6 @@ fn col(c: Color) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r: c.0 as f32 / 255.0, g: c.1 as f32 / 255.0, b: c.2 as f32 / 255.0, a: c.3 as f32 / 255.0 }
 }
 
-/// Glass remap for shapes: a dark, nearly grey colour (the tracks and chips drawn for a black
-/// background) becomes white with a see-through amount that follows its brightness.
-fn glass_fill(c: Color, light: bool) -> Color {
-    let (mx, mn) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
-    if mx == 0 || mx > 90 || mx - mn > 24 {
-        return c;
-    }
-    if light {
-        // On milky glass the dark tracks and chips become faint dark tints instead.
-        let alpha = if mx <= 22 { 0.16 } else { 0.07 + mx as f32 / 90.0 * 0.07 };
-        return Color(20, 22, 26, (alpha * 255.0 * c.3 as f32 / 255.0) as u8);
-    }
-    // The very darkest fills are wells (empty input cells): they stay dark so they read as recesses.
-    if mx <= 22 {
-        return Color(0, 0, 0, (70.0 * c.3 as f32 / 255.0) as u8);
-    }
-    let alpha = (0.10 + mx as f32 / 90.0 * 0.12) * 255.0 * (c.3 as f32 / 255.0);
-    Color(255, 255, 255, alpha as u8)
-}
-
-/// Glass remap for text: mid grey (the dim secondary text) is lifted toward white.
-/// `glass_fill` plus: on light glass, small white shapes (the active page dot, a progress knob)
-/// turn dark so they stay visible. Big white shapes (buttons, QR codes) are left alone.
-fn glass_fill_sized(c: Color, light: bool, smallest_side: f32) -> Color {
-    let (mx, mn) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
-    if light && mn >= 235 && mx - mn <= 24 && smallest_side <= 8.0 {
-        return Color(24, 26, 32, c.3);
-    }
-    glass_fill(c, light)
-}
-
-fn glass_text(c: Color, light: bool) -> Color {
-    let (mx, mn) = (c.0.max(c.1).max(c.2), c.0.min(c.1).min(c.2));
-    if light {
-        let a = c.3;
-        if mx - mn <= 24 {
-            // White text turns to dark ink, grey text to a softer dark grey; black stays.
-            return match mx {
-                200..=255 => Color(20, 22, 26, a),
-                85..=199 => Color(75, 81, 92, a),
-                _ => c,
-            };
-        }
-        // Bright accent text is darkened so it keeps its contrast on a light surface.
-        if mx > 140 {
-            let k = |v: u8| (v as f32 * 0.62) as u8;
-            return Color(k(c.0), k(c.1), k(c.2), a);
-        }
-        return c;
-    }
-    if !(85..=200).contains(&mx) || mx - mn > 24 {
-        return c;
-    }
-    let alpha = if mx < 115 { 150.0 } else { 185.0 };
-    Color(244, 245, 247, (alpha * c.3 as f32 / 255.0) as u8)
-}
-
 fn rf(r: Rect) -> D2D_RECT_F {
     D2D_RECT_F { left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h }
 }
@@ -187,7 +130,7 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn fill_round_rect(&mut self, r: Rect, radius: f32, c: Color) {
-        let c = if self.glass { glass_fill_sized(c, self.light, r.w.min(r.h)) } else { c };
+        let c = if self.glass { isle_logic::glass::fill_sized(c, self.light, r.w.min(r.h)) } else { c };
         unsafe {
             self.brush.SetColor(&col(c));
             self.ctx.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: rf(r), radiusX: radius, radiusY: radius }, self.brush);
@@ -199,7 +142,7 @@ impl Canvas for D2dCanvas<'_> {
             return;
         }
         // Light glass: white icon shapes (skip arrows, glyphs) turn to dark ink.
-        let c = if self.glass && self.light && c.0.min(c.1).min(c.2) >= 200 && c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2) <= 24 { Color(20, 22, 26, c.3) } else { c };
+        let c = if self.glass { isle_logic::glass::polygon(c, self.light) } else { c };
         unsafe {
             let Ok(factory) = self.ctx.GetFactory() else { return };
             let Ok(path) = factory.CreatePathGeometry() else { return };
@@ -218,7 +161,7 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, c: Color) {
-        let c = if self.glass { glass_fill_sized(c, self.light, r * 2.0) } else { c };
+        let c = if self.glass { isle_logic::glass::fill_sized(c, self.light, r * 2.0) } else { c };
         unsafe {
             self.brush.SetColor(&col(c));
             self.ctx.FillEllipse(&D2D1_ELLIPSE { point: Vector2 { X: cx, Y: cy }, radiusX: r, radiusY: r }, self.brush);
@@ -226,7 +169,7 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, start_deg: f32, sweep_deg: f32, width: f32, c: Color) {
-        let c = if self.glass { glass_fill(c, self.light) } else { c };
+        let c = if self.glass { isle_logic::glass::fill(c, self.light) } else { c };
         unsafe {
             let Ok(factory) = self.ctx.GetFactory() else { return };
             let Ok(path) = factory.CreatePathGeometry() else { return };
@@ -261,7 +204,7 @@ impl Canvas for D2dCanvas<'_> {
 
     fn draw_text(&mut self, text: &str, r: Rect, size: f32, weight: u16, c: Color, align: Align) {
         let Some(fmt) = self.format(size, weight, align) else { return };
-        let c = if self.glass { glass_text(c, self.light) } else { c };
+        let c = if self.glass { isle_logic::glass::text(c, self.light) } else { c };
         let wide: Vec<u16> = text.encode_utf16().collect();
         unsafe {
             self.brush.SetColor(&col(c));
@@ -272,6 +215,7 @@ impl Canvas for D2dCanvas<'_> {
     fn draw_display(&mut self, text: &str, r: Rect, size: f32, tracking: f32, c: Color, align: Align) {
         let Some(font) = self.display else { return self.draw_text(text, r, size, 800, c, align) };
         let Some(layout) = font.layout(text, size, tracking, r.w, r.h, align) else { return };
+        let c = if self.glass { isle_logic::glass::text(c, self.light) } else { c };
         unsafe {
             self.brush.SetColor(&col(c));
             self.ctx.DrawTextLayout(windows_numerics::Vector2 { X: r.x, Y: r.y }, &layout, self.brush, D2D1_DRAW_TEXT_OPTIONS_NONE);

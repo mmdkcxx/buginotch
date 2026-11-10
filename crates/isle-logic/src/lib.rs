@@ -8,6 +8,7 @@ pub mod digioh;
 pub mod digioh_layout;
 pub mod usage;
 pub mod canvas;
+pub mod glass;
 pub mod chrome;
 pub mod equaliser;
 pub mod headphones;

@@ -435,7 +435,7 @@ impl App {
         c.push_clip(shape, r);
         // One flat layer, plus 25 thin layers that each end a little earlier: the sum fades down
         // the shape with no visible seams.
-        c.fill_round_rect(Rect { h, ..shape }, 0.0, Color(255, 255, 255, if light { 64 } else { 5 }));
+        c.fill_round_rect(shape, 0.0, Color(255, 255, 255, if light { 64 } else { 5 }));
         const LAYERS: i32 = 25;
         for i in 0..LAYERS {
             let bottom = h * (i + 1) as f32 / LAYERS as f32;
