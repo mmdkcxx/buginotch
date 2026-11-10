@@ -135,10 +135,6 @@ fn place_window(hwnd: HWND) {
 /// Limits the window to the notch's current footprint (the open panel or the closed pill)
 /// with a window region, so the transparent rest neither shows nor takes mouse input.
 fn apply_window_size(hwnd: HWND) {
-    // In glass mode the window is cut to the shape itself (apply_blur).
-    if BLUR.get().is_some() {
-        return;
-    }
     let (w, h) = APP.with(|a| a.borrow().as_ref().map(|app| app.region_dims()).unwrap_or((96.0, 26.0)));
     let s = scale_of(hwnd);
     let mut rc = RECT::default();
@@ -318,8 +314,10 @@ fn draw(hwnd: HWND) {
 }
 
 thread_local! {
-    /// The glass shape last given to the system (left, width, height, radius in pixels); None = off.
-    static BLUR: std::cell::Cell<Option<(i32, i32, i32, i32)>> = const { std::cell::Cell::new(None) };
+    /// The glass backdrop window (created on first use) and the shape last given to it
+    /// (screen x, y, width, height, corner radius in pixels); None while it is hidden.
+    static GLASS: std::cell::Cell<HWND> = const { std::cell::Cell::new(HWND(std::ptr::null_mut())) };
+    static BLUR: std::cell::Cell<Option<(i32, i32, i32, i32, i32)>> = const { std::cell::Cell::new(None) };
 }
 
 #[repr(C)]
@@ -337,8 +335,8 @@ struct CompositionAttribute {
     size: usize,
 }
 
-/// Asks the system to blur what is behind the window (an undocumented but long-standing call,
-/// the one Windows' own acrylic surfaces use). `state` 0 turns it off, 3 is plain blur.
+/// Asks the system to blur what is behind a window (an undocumented but long-standing call, the
+/// one Windows' own blurred surfaces use). `state` 0 turns it off, 3 is plain blur.
 fn set_backdrop_blur(hwnd: HWND, state: u32) {
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
     unsafe {
@@ -347,45 +345,96 @@ fn set_backdrop_blur(hwnd: HWND, state: u32) {
         let f: unsafe extern "system" fn(HWND, *mut CompositionAttribute) -> BOOL = std::mem::transmute(f);
         let mut policy = AccentPolicy { state, flags: 0, color: 0, animation: 0 };
         let mut data = CompositionAttribute { attribute: 19, data: &mut policy as *mut _ as *mut std::ffi::c_void, size: std::mem::size_of::<AccentPolicy>() };
-        f(hwnd, &mut data);
+        let _ = f(hwnd, &mut data);
     }
 }
 
-/// Glass look: the window is cut to the notch's exact rounded shape each frame and the system
-/// blurs what is behind it. Switching it off hands the window back to the plain footprint.
-/// Called every frame; unchanged shapes are skipped.
+unsafe extern "system" fn glass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        match msg {
+            // Never takes the mouse or the focus: it only sits under the notch and blurs.
+            WM_NCHITTEST => LRESULT(-1), // HTTRANSPARENT
+            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_ERASEBKGND => {
+                // Black with no alpha is what lets the blurred backdrop show through.
+                let mut rc = RECT::default();
+                let _ = GetClientRect(hwnd, &mut rc);
+                FillRect(HDC(wparam.0 as *mut _), &rc, HBRUSH(GetStockObject(BLACK_BRUSH).0));
+                LRESULT(1)
+            }
+            WM_PAINT => {
+                let mut ps = PAINTSTRUCT::default();
+                BeginPaint(hwnd, &mut ps);
+                let _ = EndPaint(hwnd, &ps);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
+
+fn glass_window() -> Option<HWND> {
+    let existing = GLASS.get();
+    if !existing.0.is_null() {
+        return Some(existing);
+    }
+    unsafe {
+        let instance = GetModuleHandleW(None).ok()?;
+        let class = w!("IsleWinGlass");
+        let wc = WNDCLASSW { lpfnWndProc: Some(glass_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
+        let _ = RegisterClassW(&wc);
+        let hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, class, w!("Isle glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None).ok()?;
+        set_backdrop_blur(hwnd, 3);
+        GLASS.set(hwnd);
+        Some(hwnd)
+    }
+}
+
+/// Keeps the glass window right under the notch window (called after the notch is raised).
+fn reseat_glass(hwnd: HWND) {
+    let glass = GLASS.get();
+    if !glass.0.is_null() && BLUR.get().is_some() {
+        unsafe {
+            let _ = SetWindowPos(glass, Some(hwnd), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+}
+
+/// Glass look: a second, plain window sits right under the notch, cut to the notch's exact
+/// rounded shape every frame, and the system blurs what is behind it. The notch window draws
+/// the tint and the edges on top. Called every frame; unchanged shapes are skipped.
 fn apply_blur(hwnd: HWND, s: f32) {
-    let shape = APP.with(|a| a.borrow().as_ref().and_then(|app| app.blur_shape()));
-    let key = shape.map(|(w, h, r)| (0, (w * s).round() as i32, (h * s).round() as i32, (r * s).round() as i32));
+    let shape = if HIDDEN.get() { None } else { APP.with(|a| a.borrow().as_ref().and_then(|app| app.blur_shape())) };
+    let mut wr = RECT::default();
+    let mut cr = RECT::default();
+    let key = shape.and_then(|(w, h, r)| {
+        unsafe {
+            GetWindowRect(hwnd, &mut wr).ok()?;
+            GetClientRect(hwnd, &mut cr).ok()?;
+        }
+        let (w_px, h_px, r_px) = ((w * s).round() as i32, (h * s).round() as i32, (r * s).round() as i32);
+        Some((wr.left + ((cr.right - cr.left) - w_px) / 2, wr.top, w_px, h_px, r_px))
+    });
     let before = BLUR.replace(key);
     if before == key {
         return;
     }
     unsafe {
         match key {
-            Some((_, w_px, h_px, r_px)) => {
-                if before.is_none() {
-                    set_backdrop_blur(hwnd, 3);
-                }
-                // The blur fills the whole window, so the window itself is made exactly as big as
-                // the notch: it follows the shape frame by frame. Its content is drawn centred.
-                let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
-                let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-                if GetMonitorInfoW(monitor, &mut info).as_bool() {
-                    let m = info.rcMonitor;
-                    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), m.left + notch_x(m.right - m.left, w_px), m.top, w_px, h_px, SWP_NOACTIVATE);
-                }
-                // The top corners sit above the window, so only the bottom ones show as round.
+            Some((x, y, w_px, h_px, r_px)) => {
+                let Some(glass) = glass_window() else { return };
+                let _ = SetWindowPos(glass, Some(hwnd), x, y, w_px, h_px, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                // The top corners sit above the screen, so only the bottom ones show as round.
                 let rgn = CreateRoundRectRgn(0, -r_px, w_px + 1, h_px + 1, r_px * 2, r_px * 2);
-                if SetWindowRgn(hwnd, Some(rgn), true) == 0 {
+                if SetWindowRgn(glass, Some(rgn), true) == 0 {
                     let _ = DeleteObject(rgn.into());
                 }
             }
             None => {
-                set_backdrop_blur(hwnd, 0);
-                place_window(hwnd);
-                REGION.set((-1, -1, -1));
-                apply_window_size(hwnd);
+                let glass = GLASS.get();
+                if !glass.0.is_null() {
+                    let _ = ShowWindow(glass, SW_HIDE);
+                }
             }
         }
     }
@@ -645,6 +694,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 HIDDEN.set(fullscreen);
                 unsafe {
                     let _ = ShowWindow(hwnd, if fullscreen { SW_HIDE } else { SW_SHOWNOACTIVATE });
+                    if fullscreen {
+                        let glass = GLASS.get();
+                        if !glass.0.is_null() {
+                            BLUR.set(None);
+                            let _ = ShowWindow(glass, SW_HIDE);
+                        }
+                    }
                 }
             }
             if !fullscreen {
@@ -653,6 +709,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 unsafe {
                     let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 }
+                reseat_glass(hwnd);
             }
             poll_and_draw(hwnd);
             LRESULT(0)

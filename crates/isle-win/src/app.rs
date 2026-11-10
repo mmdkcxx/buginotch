@@ -397,14 +397,21 @@ impl App {
         if self.settings.glass {
             // Frosted glass: a dark see-through tint over the blur the window asks the system for,
             // a faint sheen that fades down the shape, and thin lit edges.
-            let tint = Color(16, 18, 24, 150);
-            c.fill_round_rect(shape, r, tint);
-            c.push_clip(shape, r);
-            c.fill_round_rect(Rect { h: (h * 0.5).max(1.0), ..shape }, 0.0, Color(255, 255, 255, 14));
-            c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, 40));
-            c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 34));
-            c.fill_round_rect(Rect { x: x + w - 1.0, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 34));
-            c.pop_clip();
+            // rgba(18,20,26,.5) tint, a sheen fading from white .12 to .02 over the height (stepped
+        // bands, since the canvas has no gradient), and 1px edges on the sides and bottom.
+        c.fill_round_rect(shape, r, Color(18, 20, 26, 150));
+        c.push_clip(shape, r);
+        const BANDS: i32 = 40;
+        for i in 0..BANDS {
+            let t = i as f32 / (BANDS - 1) as f32;
+            let a = (0.12 - 0.10 * t) * 255.0;
+            let band = h / BANDS as f32;
+            c.fill_round_rect(Rect { x, y: band * i as f32, w, h: band + 0.5 }, 0.0, Color(255, 255, 255, a as u8));
+        }
+        c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, 36));
+        c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 41));
+        c.fill_round_rect(Rect { x: x + w - 1.0, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 41));
+        c.pop_clip();
         } else {
             c.fill_round_rect(shape, r, Color(0, 0, 0, 255));
         }
