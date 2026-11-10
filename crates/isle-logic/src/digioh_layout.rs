@@ -8,7 +8,9 @@ use crate::digioh::PRESETS;
 pub struct DigiohLayout {
     // Join screen.
     pub prompt: Rect,
+    /// The row of code cells as a whole, and each cell.
     pub field: Rect,
+    pub cells: [Rect; 8],
     pub join: Rect,
     pub last: Rect,
     // Online screen.
@@ -40,10 +42,11 @@ pub enum DigiohHit {
 pub fn layout(a: Rect) -> DigiohLayout {
     let r = |x: f32, y: f32, w: f32, h: f32| Rect { x: a.x + x, y: a.y + y, w, h };
     DigiohLayout {
-        prompt: r(8.0, 6.0, 260.0, 18.0),
-        field: r(8.0, 32.0, 232.0, 36.0),
-        join: r(248.0, 32.0, 96.0, 36.0),
-        last: r(8.0, 82.0, 200.0, 28.0),
+        prompt: r(8.0, 4.0, 300.0, 18.0),
+        field: r(8.0, 28.0, 355.0, 50.0),
+        cells: std::array::from_fn(|i| r(8.0 + 45.0 * i as f32, 28.0, 40.0, 50.0)),
+        join: r(372.0, 28.0, 72.0, 50.0),
+        last: r(122.0, 90.0, 96.0, 26.0),
         dot: r(8.0, 8.0, 8.0, 8.0),
         code: r(22.0, 3.0, 96.0, 18.0),
         status: r(112.0, 3.0, 150.0, 18.0),
@@ -93,6 +96,7 @@ mod tests {
             let (x, y) = mid(r);
             assert_eq!(hit(A, false, x, y), Some(h));
         }
+        assert!(l.cells.iter().all(|c| c.x >= l.field.x && c.x + c.w <= l.field.x + l.field.w + 0.01));
         let (x, y) = mid(l.main);
         assert_eq!(hit(A, false, x, y), None, "controls are not live before joining");
     }

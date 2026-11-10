@@ -29,6 +29,14 @@ pub trait Canvas {
     fn stroke_arc(&mut self, cx: f32, cy: f32, r: f32, start_deg: f32, sweep_deg: f32, width: f32, c: Color);
     fn draw_text(&mut self, text: &str, r: Rect, size: f32, weight: u16, c: Color, align: Align);
     fn measure_text(&mut self, text: &str, size: f32, weight: u16) -> f32;
+    /// Big condensed display text (the Anton face), with `tracking` extra DIPs between letters.
+    /// The default falls back to bold body text.
+    fn draw_display(&mut self, text: &str, r: Rect, size: f32, _tracking: f32, c: Color, align: Align) {
+        self.draw_text(text, r, size, 800, c, align);
+    }
+    fn measure_display(&mut self, text: &str, size: f32, _tracking: f32) -> f32 {
+        self.measure_text(text, size, 800)
+    }
     /// Uploads straight-alpha RGBA8 pixels and returns a handle for `draw_image`.
     fn load_image(&mut self, rgba: &[u8], w: u32, h: u32) -> ImageId;
     fn draw_image(&mut self, id: ImageId, r: Rect, radius: f32);

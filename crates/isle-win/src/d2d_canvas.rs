@@ -13,6 +13,52 @@ use windows::{
     core::*,
 };
 
+/// The bundled display face (Anton), loaded from memory into its own DirectWrite factory.
+pub struct DisplayFont {
+    factory: IDWriteFactory,
+    collection: IDWriteFontCollection,
+}
+
+static ANTON: &[u8] = include_bytes!("../assets/Anton-Regular.ttf");
+
+impl DisplayFont {
+    pub fn load() -> Option<DisplayFont> {
+        unsafe {
+            let f5: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED).ok()?;
+            let loader = f5.CreateInMemoryFontFileLoader().ok()?;
+            f5.RegisterFontFileLoader(&loader).ok()?;
+            let file = loader.CreateInMemoryFontFileReference(&f5, ANTON.as_ptr() as *const _, ANTON.len() as u32, None).ok()?;
+            let builder = f5.CreateFontSetBuilder().ok()?;
+            builder.AddFontFile(&file).ok()?;
+            let set = builder.CreateFontSet().ok()?;
+            let collection: IDWriteFontCollection1 = f5.CreateFontCollectionFromFontSet(&set).ok()?;
+            Some(DisplayFont { factory: f5.cast().ok()?, collection: collection.cast().ok()? })
+        }
+    }
+
+    fn layout(&self, text: &str, size: f32, tracking: f32, w: f32, h: f32, align: Align) -> Option<IDWriteTextLayout> {
+        unsafe {
+            let f = self.factory.CreateTextFormat(w!("Anton"), &self.collection, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, w!("en-us")).ok()?;
+            let a = match align {
+                Align::Left => DWRITE_TEXT_ALIGNMENT_LEADING,
+                Align::Center => DWRITE_TEXT_ALIGNMENT_CENTER,
+                Align::Right => DWRITE_TEXT_ALIGNMENT_TRAILING,
+            };
+            let _ = f.SetTextAlignment(a);
+            let _ = f.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            let _ = f.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            let wide: Vec<u16> = text.encode_utf16().collect();
+            let layout = self.factory.CreateTextLayout(&wide, &f, w, h).ok()?;
+            if tracking != 0.0 {
+                if let Ok(l1) = layout.cast::<IDWriteTextLayout1>() {
+                    let _ = l1.SetCharacterSpacing(0.0, tracking, 0.0, DWRITE_TEXT_RANGE { startPosition: 0, length: wide.len() as u32 });
+                }
+            }
+            Some(layout)
+        }
+    }
+}
+
 pub struct D2dCanvas<'a> {
     ctx: &'a ID2D1DeviceContext,
     dw: &'a IDWriteFactory,
@@ -20,6 +66,7 @@ pub struct D2dCanvas<'a> {
     images: &'a RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
     next_image: &'a Cell<u32>,
     family: &'a HSTRING,
+    display: Option<&'a DisplayFont>,
     clips: Vec<bool>, // true = layer, false = axis-aligned clip
     shifts: Vec<Matrix3x2>,
 }
@@ -40,8 +87,9 @@ impl<'a> D2dCanvas<'a> {
         images: &'a RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
         next_image: &'a Cell<u32>,
         family: &'a HSTRING,
+        display: Option<&'a DisplayFont>,
     ) -> Self {
-        Self { ctx, dw, brush, images, next_image, family, clips: Vec::new(), shifts: Vec::new() }
+        Self { ctx, dw, brush, images, next_image, family, display, clips: Vec::new(), shifts: Vec::new() }
     }
 
     fn format(&self, size: f32, weight: u16, align: Align) -> Option<IDWriteTextFormat> {
@@ -149,6 +197,22 @@ impl Canvas for D2dCanvas<'_> {
             self.brush.SetColor(&col(c));
             self.ctx.DrawText(&wide, &fmt, &rf(r), self.brush, D2D1_DRAW_TEXT_OPTIONS_NONE, DWRITE_MEASURING_MODE_NATURAL);
         }
+    }
+
+    fn draw_display(&mut self, text: &str, r: Rect, size: f32, tracking: f32, c: Color, align: Align) {
+        let Some(font) = self.display else { return self.draw_text(text, r, size, 800, c, align) };
+        let Some(layout) = font.layout(text, size, tracking, r.w, r.h, align) else { return };
+        unsafe {
+            self.brush.SetColor(&col(c));
+            self.ctx.DrawTextLayout(windows_numerics::Vector2 { X: r.x, Y: r.y }, &layout, self.brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+        }
+    }
+
+    fn measure_display(&mut self, text: &str, size: f32, tracking: f32) -> f32 {
+        let Some(font) = self.display else { return self.measure_text(text, size, 800) };
+        let Some(layout) = font.layout(text, size, tracking, 10_000.0, 1_000.0, Align::Left) else { return 0.0 };
+        let mut m = DWRITE_TEXT_METRICS::default();
+        unsafe { if layout.GetMetrics(&mut m).is_ok() { m.width } else { 0.0 } }
     }
 
     fn measure_text(&mut self, text: &str, size: f32, weight: u16) -> f32 {

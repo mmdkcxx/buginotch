@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Timer Digioh page: enter a room code, then control that room's timer from the notch.
 
-use super::textbox::TextBox;
 use crate::digioh::{self, Conn, Snapshot};
 use crate::system::{epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, Rect};
@@ -18,11 +17,16 @@ const GREEN: Color = Color(61, 220, 151, 255);
 const AMBER: Color = Color(255, 176, 32, 255);
 const RED: Color = Color(255, 90, 79, 255);
 const ON_GREEN: Color = Color(4, 19, 13, 255);
+const BLUE: Color = Color(76, 141, 255, 255);
+const CELL: Color = Color(16, 18, 22, 255);
+const PAPER: Color = Color(244, 245, 247, 255);
+const BLINK_MS: i64 = 530;
 const TICKS: usize = 60;
 
 pub struct DigiohModule {
-    field: TextBox,
+    code: String,
     focused: bool,
+    blink_from: i64,
     snap: Snapshot,
     last_pill: String,
     /// A short complaint under the field ("kode tidak valid"), until this time.
@@ -32,6 +36,23 @@ pub struct DigiohModule {
 
 fn fade(c: Color, k: f32) -> Color {
     Color(c.0, c.1, c.2, (c.3 as f32 * k.clamp(0.0, 1.0)) as u8)
+}
+
+/// A dashed rounded outline (an empty code cell).
+fn dashed(c: &mut dyn Canvas, r: Rect, col: Color) {
+    let (dash, gap, inset) = (4.0, 3.0, 11.0);
+    let mut x = r.x + inset;
+    while x + dash <= r.x + r.w - inset + 0.5 {
+        c.fill_round_rect(Rect { x, y: r.y, w: dash, h: 1.0 }, 0.5, col);
+        c.fill_round_rect(Rect { x, y: r.y + r.h - 1.0, w: dash, h: 1.0 }, 0.5, col);
+        x += dash + gap;
+    }
+    let mut y = r.y + inset;
+    while y + dash <= r.y + r.h - inset + 0.5 {
+        c.fill_round_rect(Rect { x: r.x, y, w: 1.0, h: dash }, 0.5, col);
+        c.fill_round_rect(Rect { x: r.x + r.w - 1.0, y, w: 1.0, h: dash }, 0.5, col);
+        y += dash + gap;
+    }
 }
 
 fn offset_minutes(now_ms: i64) -> i64 {
@@ -56,7 +77,7 @@ fn phase_color(p: Phase) -> Color {
 
 impl DigiohModule {
     pub fn new() -> Self {
-        Self { field: TextBox::new(MAX_ROOM), focused: false, snap: digioh::snapshot(), last_pill: String::new(), error: None, last: digioh::last_room() }
+        Self { code: String::new(), focused: false, blink_from: 0, snap: digioh::snapshot(), last_pill: String::new(), error: None, last: digioh::last_room() }
     }
 
     fn online(&self) -> bool {
@@ -79,7 +100,7 @@ impl DigiohModule {
     }
 
     fn submit(&mut self, now: i64) {
-        let room = normalize_room(self.field.text());
+        let room = normalize_room(&self.code);
         if !valid_room(&room) {
             self.error = Some(("Kode room 5 sampai 8 huruf atau angka", now + 3500));
             return;
@@ -91,7 +112,7 @@ impl DigiohModule {
         digioh::join(room);
         self.snap = digioh::snapshot();
         self.last = room.to_string();
-        self.field.clear();
+        self.code.clear();
         self.focused = false;
         self.error = None;
     }
@@ -125,7 +146,7 @@ impl Module for DigiohModule {
         !self.online() && self.focused
     }
     fn text_caret(&self) -> Option<(f32, f32)> {
-        self.field.caret()
+        None
     }
     fn poll(&mut self, _now_ms: i64) -> bool {
         let s = digioh::snapshot();
@@ -143,16 +164,38 @@ impl Module for DigiohModule {
             self.error = None;
         }
         if !self.online() {
-            c.draw_text("Kode room dari timer.digioh.id", l.prompt, 12.5, 600, DIM, Align::Left);
-            self.field.draw(c, l.field, area, "mis. K7M2Q", self.focused, now);
-            c.fill_round_rect(l.join, 12.0, GREEN);
-            c.draw_text("Masuk", l.join, 13.0, 700, ON_GREEN, Align::Center);
+            c.draw_text("Kode room dari halaman timer", l.prompt, 12.0, 400, DIM, Align::Left);
+            let n = self.code.chars().count();
+            let blink_on = (now - self.blink_from) / BLINK_MS % 2 == 0;
+            for (i, cell) in l.cells.iter().enumerate() {
+                let active = self.focused && i == n;
+                if let Some(ch) = self.code.chars().nth(i) {
+                    c.fill_round_rect(*cell, 12.0, BORDER);
+                    c.fill_round_rect(Rect { x: cell.x + 1.0, y: cell.y + 1.0, w: cell.w - 2.0, h: cell.h - 2.0 }, 11.0, CELL);
+                    c.draw_display(&ch.to_string(), *cell, 26.0, 0.0, WHITE, Align::Center);
+                } else if active {
+                    c.fill_round_rect(*cell, 12.0, BLUE);
+                    c.fill_round_rect(Rect { x: cell.x + 1.5, y: cell.y + 1.5, w: cell.w - 3.0, h: cell.h - 3.0 }, 10.5, CELL);
+                    if blink_on {
+                        c.fill_round_rect(Rect { x: cell.x + cell.w / 2.0 - 1.0, y: cell.y + 11.0, w: 2.0, h: cell.h - 22.0 }, 1.0, BLUE);
+                    }
+                } else {
+                    dashed(c, *cell, BORDER);
+                }
+            }
+            let ready = valid_room(&normalize_room(&self.code));
+            c.fill_round_rect(l.join, 14.0, if ready { PAPER } else { fade(PAPER, 0.5) });
+            c.draw_text("Masuk", l.join, 14.0, 700, Color(0, 0, 0, 255), Align::Center);
+            let row = Rect { x: area.x + 8.0, y: l.last.y, w: area.w - 16.0, h: l.last.h };
             if let Some((msg, _)) = self.error {
-                c.draw_text(msg, Rect { x: area.x + 8.0, y: area.y + 72.0, w: area.w - 16.0, h: 16.0 }, 11.5, 400, RED, Align::Left);
+                c.draw_text(msg, row, 12.0, 400, RED, Align::Left);
             } else if !self.last.is_empty() {
-                c.fill_round_rect(l.last, 14.0, BORDER);
-                c.fill_round_rect(Rect { x: l.last.x + 1.0, y: l.last.y + 1.0, w: l.last.w - 2.0, h: l.last.h - 2.0 }, 13.0, BUTTON);
-                c.draw_text(&format!("Terakhir: {}", self.last), l.last, 12.0, 600, WHITE, Align::Center);
+                c.draw_text("Dipakai terakhir", Rect { x: row.x, w: 110.0, ..row }, 12.0, 400, DIM, Align::Left);
+                c.fill_round_rect(l.last, 13.0, BORDER);
+                c.fill_round_rect(Rect { x: l.last.x + 1.0, y: l.last.y + 1.0, w: l.last.w - 2.0, h: l.last.h - 2.0 }, 12.0, Color(0, 0, 0, 255));
+                // History glyph: an open ring with an arrow tip.
+                c.stroke_arc(l.last.x + 15.0, l.last.y + 13.0, 4.5, -60.0, 300.0, 1.5, DIM);
+                c.draw_display(&self.last, Rect { x: l.last.x + 25.0, w: l.last.w - 30.0, ..l.last }, 14.0, 1.4, WHITE, Align::Left);
             }
             return;
         }
@@ -169,7 +212,7 @@ impl Module for DigiohModule {
         };
         c.fill_circle(l.dot.x + 4.0, l.dot.y + 4.0, 6.0, fade(dot_c, 0.2));
         c.fill_circle(l.dot.x + 4.0, l.dot.y + 4.0, 4.0, dot_c);
-        c.draw_text(&self.snap.room, l.code, 13.0, 800, WHITE, Align::Left);
+        c.draw_display(&self.snap.room, l.code, 15.0, 1.5, WHITE, Align::Left);
         let status = match conn {
             Conn::Online => "Terhubung".to_string(),
             Conn::Connecting => "Menghubungkan…".to_string(),
@@ -189,7 +232,7 @@ impl Module for DigiohModule {
             return;
         };
 
-        c.draw_text(&Self::show_time(&t, now), l.time, 54.0, 800, accent, Align::Left);
+        c.draw_display(&Self::show_time(&t, now), l.time, 56.0, 0.0, accent, Align::Left);
 
         // Under the digits: the end time, or the length choices while stopped.
         if t.is_idle() {
@@ -245,13 +288,11 @@ impl Module for DigiohModule {
 
     fn on_event(&mut self, e: &Event, area: Rect, now: i64) -> Reaction {
         if !self.online() {
+            self.blink_from = now;
             match e {
                 Event::PointerDown(x, y) => {
                     match hit(area, false, *x, *y) {
-                        Some(DigiohHit::Field) => {
-                            self.focused = true;
-                            self.field.pointer_down(*x, layout(area).field, now);
-                        }
+                        Some(DigiohHit::Field) => self.focused = true,
                         Some(DigiohHit::Join) => self.submit(now),
                         Some(DigiohHit::Last) => {
                             let r = self.last.clone();
@@ -263,28 +304,20 @@ impl Module for DigiohModule {
                     }
                     return Reaction::Redraw;
                 }
-                Event::PointerDrag(x, _) if self.focused => {
-                    return if self.field.pointer_drag(*x, layout(area).field) { Reaction::Redraw } else { Reaction::None };
+                _ if !self.focused => return Reaction::None,
+                Event::Edit { key: EditKey::Enter, .. } => self.submit(now),
+                Event::Edit { key: EditKey::Escape, .. } => self.focused = false,
+                Event::Edit { key: EditKey::Backspace | EditKey::Delete, .. } => {
+                    self.code.pop();
                 }
-                Event::PointerUp(..) => {
-                    self.field.pointer_up();
-                    return Reaction::None;
+                Event::Text(s) => {
+                    let room = normalize_room(&format!("{}{}", self.code, normalize_room(s)));
+                    self.code = room;
+                    self.error = None;
                 }
-                Event::Edit { key: EditKey::Enter, .. } if self.focused => {
-                    self.submit(now);
-                    return Reaction::Redraw;
-                }
-                Event::Edit { key: EditKey::Escape, .. } if self.focused => {
-                    self.focused = false;
-                    return Reaction::Redraw;
-                }
-                Event::Text(s) if self.focused => {
-                    let ev = Event::Text(normalize_room(s));
-                    return self.field.on_event(&ev, now).unwrap_or(Reaction::None);
-                }
-                _ if self.focused => return self.field.on_event(e, now).unwrap_or(Reaction::None),
                 _ => return Reaction::None,
             }
+            return Reaction::Redraw;
         }
         let Event::PointerDown(x, y) = e else { return Reaction::None };
         match hit(area, true, *x, *y) {
@@ -312,7 +345,7 @@ impl Module for DigiohModule {
             }
         }
         if self.focused && !self.online() {
-            let b = self.field.next_blink_ms(now);
+            let b = now + BLINK_MS - (now - self.blink_from).rem_euclid(BLINK_MS);
             wake = Some(wake.map_or(b, |w| w.min(b)));
         }
         wake

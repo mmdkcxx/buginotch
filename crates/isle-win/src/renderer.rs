@@ -29,6 +29,7 @@ pub struct Renderer {
     images: RefCell<HashMap<ImageId, ID2D1Bitmap1>>,
     next_image: Cell<u32>,
     font_family: HSTRING,
+    display: Option<crate::d2d_canvas::DisplayFont>,
     dpi: f32,
     size: (u32, u32),
     offset_x: f32,
@@ -88,6 +89,7 @@ impl Renderer {
                 images: RefCell::new(HashMap::new()),
                 next_image: Cell::new(1),
                 font_family,
+                display: crate::d2d_canvas::DisplayFont::load(),
                 dpi,
                 size: (w_px.max(1), h_px.max(1)),
                 offset_x: 0.0,
@@ -147,7 +149,7 @@ impl Renderer {
             self.d2d_ctx.BeginDraw();
             self.d2d_ctx.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
             {
-                let mut canvas = D2dCanvas::new(&self.d2d_ctx, &self.dw, &self.brush, &self.images, &self.next_image, &self.font_family);
+                let mut canvas = D2dCanvas::new(&self.d2d_ctx, &self.dw, &self.brush, &self.images, &self.next_image, &self.font_family, self.display.as_ref());
                 f(&mut canvas);
             }
             let end = self.d2d_ctx.EndDraw(None, None);
