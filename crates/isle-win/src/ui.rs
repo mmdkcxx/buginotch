@@ -31,10 +31,14 @@ pub fn draw_chrome(c: &mut dyn Canvas, area: Rect, header: &Header, pages: usize
     c.draw_text(header.date, Rect { x: right - 58.0 - 140.0, y: area.y + 10.0, w: 140.0, h: 20.0 }, 12.5, 400, rgba(DIM, alpha), Align::Right);
 
     if pages > 0 {
-        for (center, glyph) in [(prev_center(area), "‹"), (next_center(area), "›")] {
+        // Chevrons are drawn as shapes, not text: a font's "‹" and "›" sit off-centre in their
+        // boxes, and mirrored polygons are exact mirror images.
+        for (center, dir) in [(prev_center(area), -1.0_f32), (next_center(area), 1.0)] {
             c.fill_circle(center.0, center.1, ARROW_RADIUS, rgba(BUTTON, alpha));
-            let r = Rect { x: center.0 - ARROW_RADIUS, y: center.1 - ARROW_RADIUS - 1.0, w: ARROW_RADIUS * 2.0, h: ARROW_RADIUS * 2.0 };
-            c.draw_text(glyph, r, 17.0, 600, rgba(WHITE, alpha), Align::Center);
+            let (cx, cy) = (center.0 - dir * 0.6, center.1);
+            let (tip, back, rise, thick) = (cx + dir * 3.0, cx - dir * 2.5, 5.2, 1.9);
+            let pts = [(back, cy - rise), (tip, cy), (back, cy + rise), (back - dir * thick, cy + rise), (tip - dir * thick * 1.45, cy), (back - dir * thick, cy - rise)];
+            c.fill_polygon(&pts, rgba(WHITE, alpha));
         }
         for i in 0..pages {
             let (x, y) = dot_center(area, pages, i);

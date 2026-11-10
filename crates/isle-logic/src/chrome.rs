@@ -4,7 +4,17 @@
 use crate::canvas::Rect;
 
 pub const ARROW_RADIUS: f32 = 13.0;
-const ARROW_INSET: f32 = 8.0;
+/// Half of the 44 px side band that `ui::page_area` leaves free, minus the arrow radius: the
+/// arrow sits in the middle of that band, so it is as far from the notch edge as from the page.
+const ARROW_INSET: f32 = 22.0 - ARROW_RADIUS;
+/// The page body starts this far below the top and ends this far above the bottom (the
+/// header row and the dots row), so the arrows centre on the body, not on the whole notch.
+const BODY_TOP: f32 = 36.0;
+const BODY_BOTTOM: f32 = 26.0;
+
+fn arrow_y(area: Rect) -> f32 {
+    area.y + BODY_TOP + (area.h - BODY_TOP - BODY_BOTTOM) / 2.0
+}
 pub const DOT_SLOT: f32 = 16.0;
 /// Width of the white indicator capsule at rest.
 pub const INDICATOR_W: f32 = 18.0;
@@ -18,11 +28,11 @@ pub enum ChromeAction {
 }
 
 pub fn prev_center(area: Rect) -> (f32, f32) {
-    (area.x + ARROW_INSET + ARROW_RADIUS, area.y + area.h / 2.0)
+    (area.x + ARROW_INSET + ARROW_RADIUS, arrow_y(area))
 }
 
 pub fn next_center(area: Rect) -> (f32, f32) {
-    (area.x + area.w - ARROW_INSET - ARROW_RADIUS, area.y + area.h / 2.0)
+    (area.x + area.w - ARROW_INSET - ARROW_RADIUS, arrow_y(area))
 }
 
 /// Centre of page dot `i` of `pages`.
@@ -74,6 +84,16 @@ mod tests {
     use crate::canvas::Rect;
 
     const AREA: Rect = Rect { x: 0.0, y: 0.0, w: 540.0, h: 184.0 };
+
+    #[test]
+    fn arrows_are_mirror_images_centred_on_the_page_body() {
+        let (px, py) = prev_center(AREA);
+        let (nx, ny) = next_center(AREA);
+        assert_eq!(py, ny);
+        assert_eq!(px + nx, AREA.w);
+        assert_eq!(py, 36.0 + (184.0 - 36.0 - 26.0) / 2.0);
+        assert_eq!(px, 22.0);
+    }
 
     #[test]
     fn hit_next_arrow() {
