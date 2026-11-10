@@ -51,6 +51,11 @@ pub struct Settings {
     pub page_order: Vec<String>,
 }
 
+/// The page order a fresh install starts with (the pages the user arranged for themselves).
+fn default_page_order() -> Vec<String> {
+    ["notifications", "music", "usage", "shelf", "clipboard", "digioh", "todo", "timer", "water", "widgets"].map(String::from).to_vec()
+}
+
 fn default_clocks() -> Vec<WorldClock> {
     [("Tokyo", "Tokyo Standard Time"), ("London", "GMT Standard Time"), ("New York", "Eastern Standard Time")]
         .into_iter()
@@ -60,7 +65,7 @@ fn default_clocks() -> Vec<WorldClock> {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autostart: false, monitor: 0, pill_width: 96.0, pill_height: 26.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 500, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/islenotch-winver".to_string(), update_token: String::new(), last_version: String::new(), glass: false, glass_light: false, page_order: Vec::new() }
+        Self { autostart: false, monitor: 0, pill_width: 120.0, pill_height: 30.0, pomodoro: PomodoroConfig::default(), lyrics_lead_ms: 900, rest_after_secs: 120, world_clocks: default_clocks(), auto_update: true, update_check_hours: 6, skipped_version: String::new(), update_repo: "mmdkcxx/islenotch-winver".to_string(), update_token: String::new(), last_version: String::new(), glass: true, glass_light: true, page_order: default_page_order() }
     }
 }
 
@@ -81,13 +86,13 @@ mod tests {
 
     #[test]
     fn page_order_is_read_from_toml() {
-        assert!(Settings::default().page_order.is_empty());
+        assert_eq!(Settings::default().page_order.first().map(String::as_str), Some("notifications"));
         assert_eq!(Settings::from_toml("page_order = [\"usage\", \"music\"]").page_order, vec!["usage", "music"]);
     }
 
     #[test]
     fn lyrics_lead_defaults_to_500_ms_and_can_be_set() {
-        assert_eq!(Settings::default().lyrics_lead_ms, 500);
+        assert_eq!(Settings::default().lyrics_lead_ms, 900);
         assert_eq!(Settings::from_toml("lyrics_lead_ms = 250").lyrics_lead_ms, 250);
     }
 
@@ -123,7 +128,7 @@ mod tests {
     fn partial_file_keeps_other_defaults() {
         let s = Settings::from_toml("pill_width = 80.0");
         assert_eq!(s.pill_width, 80.0);
-        assert_eq!(s.pill_height, 26.0);
+        assert_eq!(s.pill_height, 30.0);
         assert!(!s.autostart);
     }
 

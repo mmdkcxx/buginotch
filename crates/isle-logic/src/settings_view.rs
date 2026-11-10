@@ -1124,10 +1124,11 @@ mod tests {
         v.settings.skipped_version = "9.9.9".into();
         let mut s = Settings::default();
         s.skipped_version = "1.0.0".into();
+        s.page_order = vec!["usage".into()];
         v.apply_to(&mut s);
         assert!(s.glass);
         assert_eq!(s.skipped_version, "1.0.0");
-        assert!(s.page_order.is_empty(), "untouched order is not written");
+        assert_eq!(s.page_order, vec!["usage"], "untouched order is not written");
         v.order_touched = true;
         v.apply_to(&mut s);
         assert_eq!(s.page_order, vec!["music", "timer", "todo"]);
