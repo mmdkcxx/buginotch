@@ -30,6 +30,26 @@ scripts/build-installer.sh              # dist/IsleWin-Setup-<version>.exe
 
 7. JSON cards: planned (see `docs/superpowers/specs`).
 
+## Auto update
+
+IsleWin looks for a newer GitHub release at start and every 6 hours (tray menu: "Periksa
+pembaruan…", "Perbarui otomatis"). A new version appears on the **Pembaruan** page and as a
+short peek in the pill; nothing is installed without a click. The installer is downloaded,
+checked against its SHA-256, then run silently, and IsleWin starts again by itself.
+
+Settings in `%APPDATA%\IsleWin\settings.toml`:
+
+```toml
+auto_update = true
+update_check_hours = 6
+update_repo = "mmdkcxx/islenotch-winver"
+update_token = ""   # read-only GitHub token, only needed while the repository is private
+```
+
+The token can also be given as the `ISLE_UPDATE_TOKEN` environment variable (nothing on
+disk). Each release needs `IsleWin-Setup-x.y.z.exe`; the release workflow also uploads its
+`.sha256`.
+
 ## Credits and licence
 
 GPL-3.0-or-later. `pomodoro.rs` and `lrc.rs` are adapted from Isle (GPL-3.0-or-later);

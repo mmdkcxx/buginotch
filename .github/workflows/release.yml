@@ -21,6 +21,13 @@ jobs:
           VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
           "/c/Program Files (x86)/NSIS/makensis.exe" -DVERSION="$VERSION" installer/isle-win.nsi
+      - name: Checksum
+        shell: bash
+        run: |
+          cd dist
+          for f in IsleWin-Setup-*.exe; do sha256sum "$f" > "$f.sha256"; done
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/IsleWin-Setup-*.exe
+          files: |
+            dist/IsleWin-Setup-*.exe
+            dist/IsleWin-Setup-*.exe.sha256

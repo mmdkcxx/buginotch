@@ -15,6 +15,7 @@ mod renderer;
 mod settings_io;
 mod system;
 mod tray;
+mod updater;
 mod ui;
 mod window;
 
@@ -35,4 +36,6 @@ fn main() {
     if let Err(e) = window::run() {
         log(&format!("error: {e}"));
     }
+    // An update the user chose to install when quitting.
+    updater::run_pending_install();
 }

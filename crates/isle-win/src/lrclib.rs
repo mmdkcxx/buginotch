@@ -10,7 +10,7 @@ use windows::{Win32::Networking::WinHttp::*, core::*};
 
 const MISS_TTL: Duration = Duration::from_secs(24 * 3600);
 
-struct Handle(*mut c_void);
+pub(crate) struct Handle(pub(crate) *mut c_void);
 
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -22,7 +22,7 @@ impl Drop for Handle {
     }
 }
 
-fn check(h: *mut c_void) -> Result<Handle> {
+pub(crate) fn check(h: *mut c_void) -> Result<Handle> {
     if h.is_null() { Err(Error::from_thread()) } else { Ok(Handle(h)) }
 }
 

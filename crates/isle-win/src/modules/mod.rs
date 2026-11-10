@@ -14,3 +14,4 @@ pub mod widgets;
 pub mod shelf;
 pub mod textbox;
 pub mod todo;
+pub mod update;

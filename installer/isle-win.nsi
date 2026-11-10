@@ -55,6 +55,13 @@ Section "Install"
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+; Silent installs come from the in-app updater: start the new version when done.
+Function .onInstSuccess
+  IfSilent 0 notsilent
+  Exec '"$INSTDIR\isle-win.exe"'
+  notsilent:
+FunctionEnd
+
 Section "Uninstall"
   nsExec::Exec 'taskkill /F /IM isle-win.exe'
   Sleep 300

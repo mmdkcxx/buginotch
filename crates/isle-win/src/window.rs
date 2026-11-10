@@ -3,7 +3,7 @@
 
 use crate::app::App;
 use crate::renderer::Renderer;
-use crate::tray::{self, ID_AUTOSTART, ID_QUIT, Tray, WM_APP_TRAY};
+use crate::tray::{self, ID_AUTOSTART, ID_AUTOUPDATE, ID_QUIT, ID_UPDATE, Tray, WM_APP_TRAY};
 use isle_logic::layout::notch_x;
 use isle_logic::module::Event;
 use std::cell::RefCell;
@@ -96,6 +96,7 @@ impl Window {
             let renderer = Renderer::new(hwnd, bw, bh, dpi)?;
             RENDERER.with(|r| *r.borrow_mut() = Some(renderer));
             SetTimer(Some(hwnd), TIMER_SECOND, 1000, None);
+            crate::updater::set_hwnd(hwnd);
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             draw(hwnd);
             Ok(Window { hwnd })
@@ -540,6 +541,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     tray::toggle_autostart();
                     save_settings();
                 }
+                ID_UPDATE => crate::updater::check_now(),
+                ID_AUTOUPDATE => crate::settings_io::update(|s| s.auto_update = !s.auto_update),
                 ID_QUIT => unsafe {
                     let _ = DestroyWindow(hwnd);
                 },
