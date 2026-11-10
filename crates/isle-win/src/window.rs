@@ -317,6 +317,7 @@ thread_local! {
     /// The glass backdrop window (created on first use) and the shape last given to it
     /// (screen x, y, width, height, corner radius in pixels); None while it is hidden.
     static GLASS: std::cell::Cell<HWND> = const { std::cell::Cell::new(HWND(std::ptr::null_mut())) };
+    static BACKDROP: RefCell<Option<crate::backdrop::Backdrop>> = const { RefCell::new(None) };
     static BLUR: std::cell::Cell<Option<(i32, i32, i32, i32, i32)>> = const { std::cell::Cell::new(None) };
 }
 
@@ -373,7 +374,17 @@ unsafe extern "system" fn glass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
     }
 }
 
-fn glass_window() -> Option<HWND> {
+/// Notes which glass path was taken, in %TEMP%\\isle-glass.log (a debugging aid for this effect).
+pub(crate) fn glass_log(msg: &str) {
+    if let Some(dir) = std::env::var_os("TEMP") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(std::path::Path::new(&dir).join("isle-glass.log")) {
+            let _ = writeln!(f, "{msg}");
+        }
+    }
+}
+
+fn glass_window(scale: f32) -> Option<HWND> {
     let existing = GLASS.get();
     if !existing.0.is_null() {
         return Some(existing);
@@ -383,7 +394,27 @@ fn glass_window() -> Option<HWND> {
         let class = w!("IsleWinGlass");
         let wc = WNDCLASSW { lpfnWndProc: Some(glass_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
         let _ = RegisterClassW(&wc);
-        let hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, class, w!("Isle glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None).ok()?;
+        let make = |extra: WINDOW_EX_STYLE| CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | extra, class, w!("Isle glass"), WS_POPUP, 0, 0, 10, 10, None, None, Some(instance.into()), None);
+        // First choice: a composition window with a real backdrop effect (blur 32 + saturate 170%).
+        if std::env::var_os("ISLE_GLASS_ACCENT").is_none() {
+            if let Ok(hwnd) = make(WS_EX_NOREDIRECTIONBITMAP) {
+                match crate::backdrop::attach(hwnd, 32.0 * scale, 1.7) {
+                    Ok(b) => {
+                        glass_log("composition backdrop ok");
+                        BACKDROP.with(|c| *c.borrow_mut() = Some(b));
+                        GLASS.set(hwnd);
+                        return Some(hwnd);
+                    }
+                    Err(e) => {
+                        glass_log(&format!("composition backdrop failed: {e}"));
+                        let _ = DestroyWindow(hwnd);
+                    }
+                }
+            }
+        }
+        glass_log("using accent blur");
+        // Fallback: the system's own blur through the accent policy.
+        let hwnd = make(WINDOW_EX_STYLE(0)).ok()?;
         set_backdrop_blur(hwnd, 3);
         GLASS.set(hwnd);
         Some(hwnd)
@@ -422,7 +453,7 @@ fn apply_blur(hwnd: HWND, s: f32) {
     unsafe {
         match key {
             Some((x, y, w_px, h_px, r_px)) => {
-                let Some(glass) = glass_window() else { return };
+                let Some(glass) = glass_window(s) else { return };
                 let _ = SetWindowPos(glass, Some(hwnd), x, y, w_px, h_px, SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 // The top corners sit above the screen, so only the bottom ones show as round.
                 let rgn = CreateRoundRectRgn(0, -r_px, w_px + 1, h_px + 1, r_px * 2, r_px * 2);

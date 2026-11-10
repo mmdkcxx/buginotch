@@ -401,12 +401,13 @@ impl App {
         // bands, since the canvas has no gradient), and 1px edges on the sides and bottom.
         c.fill_round_rect(shape, r, Color(18, 20, 26, 150));
         c.push_clip(shape, r);
-        const BANDS: i32 = 40;
-        for i in 0..BANDS {
-            let t = i as f32 / (BANDS - 1) as f32;
-            let a = (0.12 - 0.10 * t) * 255.0;
-            let band = h / BANDS as f32;
-            c.fill_round_rect(Rect { x, y: band * i as f32, w, h: band + 0.5 }, 0.0, Color(255, 255, 255, a as u8));
+        // One flat 2% layer, plus 25 layers of 1/255 that each end a little earlier: the sum
+        // fades from about 12% at the top to 2% at the bottom with no visible seams.
+        c.fill_round_rect(Rect { h, ..shape }, 0.0, Color(255, 255, 255, 5));
+        const LAYERS: i32 = 25;
+        for i in 0..LAYERS {
+            let bottom = h * (i + 1) as f32 / LAYERS as f32;
+            c.fill_round_rect(Rect { x, y: 0.0, w, h: bottom }, 0.0, Color(255, 255, 255, 1));
         }
         c.fill_round_rect(Rect { x, y: h - 1.0, w, h: 1.0 }, 0.0, Color(255, 255, 255, 36));
         c.fill_round_rect(Rect { x, y: 0.0, w: 1.0, h }, 0.0, Color(255, 255, 255, 41));
