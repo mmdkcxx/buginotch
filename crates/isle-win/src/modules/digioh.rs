@@ -4,7 +4,7 @@
 use crate::digioh::{self, Conn, Snapshot};
 use crate::system::{epoch_ms, local_time};
 use isle_logic::canvas::{Align, Canvas, Color, Rect};
-use isle_logic::digioh::{MAX_ROOM, PRESETS, Phase, Timer, clock_text, format_time, normalize_room, valid_room};
+use isle_logic::digioh::{parse_duration, MAX_ROOM, PRESETS, Phase, Timer, clock_text, format_time, normalize_room, valid_room};
 use isle_logic::digioh_layout::{DigiohHit, hit, layout};
 use isle_logic::module::{EditKey, Event, Module, PillItem, Reaction};
 
@@ -32,6 +32,8 @@ pub struct DigiohModule {
     /// A short complaint under the field ("kode tidak valid"), until this time.
     error: Option<(&'static str, i64)>,
     last: String,
+    /// A length being typed (the digits were tapped).
+    editing: Option<String>,
 }
 
 fn fade(c: Color, k: f32) -> Color {
@@ -77,7 +79,7 @@ fn phase_color(p: Phase) -> Color {
 
 impl DigiohModule {
     pub fn new() -> Self {
-        Self { code: String::new(), focused: false, blink_from: 0, snap: digioh::snapshot(), last_pill: String::new(), error: None, last: digioh::last_room() }
+        Self { code: String::new(), focused: false, blink_from: 0, snap: digioh::snapshot(), last_pill: String::new(), error: None, last: digioh::last_room(), editing: None }
     }
 
     fn online(&self) -> bool {
@@ -143,7 +145,7 @@ impl Module for DigiohModule {
         true
     }
     fn wants_text(&self) -> bool {
-        !self.online() && self.focused
+        (!self.online() && self.focused) || self.editing.is_some()
     }
     fn text_caret(&self) -> Option<(f32, f32)> {
         None
@@ -232,10 +234,26 @@ impl Module for DigiohModule {
             return;
         };
 
-        c.draw_display(&Self::show_time(&t, now), l.time, 56.0, 0.0, accent, Align::Left);
+        if let Some(text) = &self.editing {
+            let shown = if text.is_empty() { "0".to_string() } else { text.clone() };
+            let col = if text.is_empty() { DIM } else { WHITE };
+            c.draw_display(&shown, l.time, 56.0, 0.0, col, Align::Left);
+            let w = c.measure_display(if text.is_empty() { "" } else { text }, 56.0, 0.0);
+            if (now - self.blink_from) / BLINK_MS % 2 == 0 {
+                c.fill_round_rect(Rect { x: l.time.x + w + 3.0, y: l.time.y + 8.0, w: 2.5, h: l.time.h - 16.0 }, 1.0, BLUE);
+            }
+        } else {
+            c.draw_display(&Self::show_time(&t, now), l.time, 56.0, 0.0, accent, Align::Left);
+            if t.is_idle() {
+                let w = c.measure_display(&Self::show_time(&t, now), 56.0, 0.0);
+                c.draw_text("ubah", Rect { x: l.time.x + w + 10.0, y: l.time.y + l.time.h - 30.0, w: 50.0, h: 16.0 }, 11.0, 500, DIM, Align::Left);
+            }
+        }
 
         // Under the digits: the end time, or the length choices while stopped.
-        if t.is_idle() {
+        if self.editing.is_some() {
+            c.draw_text("Ketik menit atau mm:ss, lalu Enter", l.info, 12.0, 400, BLUE, Align::Left);
+        } else if t.is_idle() {
             let w = l.info.w / PRESETS.len() as f32;
             for (i, p) in PRESETS.iter().enumerate() {
                 let on = *p == t.duration();
@@ -319,12 +337,49 @@ impl Module for DigiohModule {
             }
             return Reaction::Redraw;
         }
+        if self.editing.is_some() {
+            self.blink_from = now;
+            match e {
+                Event::Edit { key: EditKey::Enter, .. } => {
+                    let typed = self.editing.take().unwrap_or_default();
+                    match parse_duration(&typed) {
+                        Some(secs) => self.act(|t| Some(t.set_duration(secs)), now),
+                        None => self.error = Some(("Panjang tidak valid", now + 3000)),
+                    }
+                }
+                Event::Edit { key: EditKey::Escape, .. } => self.editing = None,
+                Event::Edit { key: EditKey::Backspace | EditKey::Delete, .. } => {
+                    if let Some(t) = &mut self.editing {
+                        t.pop();
+                    }
+                }
+                Event::Text(s) => {
+                    if let Some(t) = &mut self.editing {
+                        for ch in s.chars().filter(|c| c.is_ascii_digit() || *c == ':') {
+                            if t.len() < 8 && (ch != ':' || !t.contains(':')) {
+                                t.push(ch);
+                            }
+                        }
+                    }
+                }
+                Event::PointerDown(..) => self.editing = None,
+                _ => return Reaction::None,
+            }
+            self.snap = digioh::snapshot();
+            return Reaction::Redraw;
+        }
         let Event::PointerDown(x, y) = e else { return Reaction::None };
         match hit(area, true, *x, *y) {
             Some(DigiohHit::Leave) => digioh::leave(),
             Some(DigiohHit::Main) => self.act(|t| t.toggle(now), now),
             Some(DigiohHit::Reset) => self.act(|t| Some(t.reset()), now),
             Some(DigiohHit::Plus) => self.act(|t| Some(t.add_seconds(60)), now),
+            Some(DigiohHit::Time) => {
+                if self.snap.timer.as_ref().is_some_and(|t| t.is_idle()) {
+                    self.editing = Some(String::new());
+                    self.blink_from = now;
+                }
+            }
             Some(DigiohHit::Preset(i)) => self.act(|t| t.is_idle().then(|| t.set_duration(PRESETS[i])), now),
             _ => return Reaction::None,
         }
@@ -344,7 +399,7 @@ impl Module for DigiohModule {
                 }
             }
         }
-        if self.focused && !self.online() {
+        if (self.focused && !self.online()) || self.editing.is_some() {
             let b = now + BLINK_MS - (now - self.blink_from).rem_euclid(BLINK_MS);
             wake = Some(wake.map_or(b, |w| w.min(b)));
         }

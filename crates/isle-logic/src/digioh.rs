@@ -28,6 +28,29 @@ pub fn ws_path(room: &str) -> String {
     format!("/ws?room={room}")
 }
 
+/// Longest length that can be typed, in seconds (10 hours).
+pub const MAX_SECONDS: i64 = 10 * 3600;
+
+/// A typed length: "5" is five minutes, "5:30" is five minutes and thirty seconds, "90" is
+/// ninety minutes. `None` for anything else, zero, or more than `MAX_SECONDS`.
+pub fn parse_duration(text: &str) -> Option<i64> {
+    let t = text.trim();
+    let (m, s) = match t.split_once(':') {
+        Some((m, s)) => (if m.is_empty() { "0" } else { m }, s),
+        None => (t, "0"),
+    };
+    let digits = |x: &str| !x.is_empty() && x.len() <= 4 && x.bytes().all(|b| b.is_ascii_digit());
+    if !digits(m) || !digits(s) {
+        return None;
+    }
+    let (m, s): (i64, i64) = (m.parse().ok()?, s.parse().ok()?);
+    if s > 59 {
+        return None;
+    }
+    let total = m * 60 + s;
+    (1..=MAX_SECONDS).contains(&total).then_some(total)
+}
+
 /// "03:12", "1:05:00" or "-00:23".
 pub fn format_time(seconds: f64) -> String {
     let t = seconds.abs().floor() as i64;
@@ -201,6 +224,21 @@ mod tests {
 
     fn running(started_ago_s: i64, duration: i64) -> Timer {
         Timer::from_message(&json!({ "type": "STATE", "state": { "status": "running", "duration": duration, "startedAt": NOW - started_ago_s * 1000, "pausedRemaining": null, "appearance": { "bgColor": "#123456" } } }).to_string()).unwrap()
+    }
+
+    #[test]
+    fn typed_lengths() {
+        assert_eq!(parse_duration("5"), Some(300));
+        assert_eq!(parse_duration(" 12 "), Some(720));
+        assert_eq!(parse_duration("5:30"), Some(330));
+        assert_eq!(parse_duration(":45"), Some(45));
+        assert_eq!(parse_duration("90"), Some(5400));
+        assert_eq!(parse_duration("0"), None);
+        assert_eq!(parse_duration("5:75"), None);
+        assert_eq!(parse_duration("601"), None);
+        assert_eq!(parse_duration(""), None);
+        assert_eq!(parse_duration("a"), None);
+        assert_eq!(parse_duration("5:"), None);
     }
 
     #[test]

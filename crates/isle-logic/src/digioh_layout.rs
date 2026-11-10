@@ -35,6 +35,8 @@ pub enum DigiohHit {
     Reset,
     Main,
     Plus,
+    /// The big digits: tap to type a length.
+    Time,
     /// One of the duration zones on the ruler (index into `PRESETS`).
     Preset(usize),
 }
@@ -69,6 +71,9 @@ pub fn hit(a: Rect, online: bool, x: f32, y: f32) -> Option<DigiohHit> {
     let fixed = [(l.leave, DigiohHit::Leave), (l.main, DigiohHit::Main), (l.reset, DigiohHit::Reset), (l.plus, DigiohHit::Plus)];
     if let Some((_, h)) = fixed.into_iter().find(|(r, _)| inside(*r)) {
         return Some(h);
+    }
+    if inside(l.time) {
+        return Some(DigiohHit::Time);
     }
     // Generous vertical target around the thin ruler.
     let zone = Rect { y: l.ruler.y - 8.0, h: l.ruler.h + 14.0, ..l.ruler };
@@ -111,8 +116,9 @@ mod tests {
         let y = l.ruler.y + l.ruler.h / 2.0;
         assert_eq!(hit(A, true, l.ruler.x + 2.0, y), Some(DigiohHit::Preset(0)));
         assert_eq!(hit(A, true, l.ruler.x + l.ruler.w - 2.0, y), Some(DigiohHit::Preset(PRESETS.len() - 1)));
-        let (x, _) = mid(l.field);
-        assert_eq!(hit(A, true, x, l.field.y), None);
+        let (x, y) = mid(l.time);
+        assert_eq!(hit(A, true, x, y), Some(DigiohHit::Time));
+        assert_eq!(hit(A, true, l.plus.x, A.y + 112.0), None);
     }
 
     #[test]
