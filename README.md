@@ -24,9 +24,11 @@ scripts/build-installer.sh              # dist/IsleWin-Setup-<version>.exe
 
 ## Stages
 
-1. Shell + Charging  2. Music  3. Focus timer  4. Lyrics: done.
-5. Headphones  6. Text input + To-do  7. JSON cards  8. Shelf  9. Clipboard
-10. Water, Notifications, Widgets, Resting: planned (see `docs/superpowers/specs`).
+1. Shell + Charging  2. Music  3. Focus timer  4. Lyrics  5. Headphones
+6. Text input + To-do  8. Shelf  9. Clipboard
+10. Water, Notifications, Widgets, Resting: done.
+
+7. JSON cards: planned (see `docs/superpowers/specs`).
 
 ## Credits and licence
 
