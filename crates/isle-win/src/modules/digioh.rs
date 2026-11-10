@@ -244,10 +244,6 @@ impl Module for DigiohModule {
             }
         } else {
             c.draw_display(&Self::show_time(&t, now), l.time, 56.0, 0.0, accent, Align::Left);
-            if t.is_idle() {
-                let w = c.measure_display(&Self::show_time(&t, now), 56.0, 0.0);
-                c.draw_text("ubah", Rect { x: l.time.x + w + 10.0, y: l.time.y + l.time.h - 30.0, w: 50.0, h: 16.0 }, 11.0, 500, DIM, Align::Left);
-            }
         }
 
         // Under the digits: the end time, or the length choices while stopped.
