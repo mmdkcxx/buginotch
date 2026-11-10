@@ -54,6 +54,10 @@ pub trait Canvas {
     fn push_shift(&mut self, _dx: f32, _alpha: f32) {}
     fn pop_shift(&mut self) {}
     fn push_clip(&mut self, r: Rect, radius: f32);
+    /// Like `push_clip`, but keeps everything *outside* the rounded rectangle (paired with `pop_clip`).
+    fn push_clip_out(&mut self, r: Rect, radius: f32) {
+        self.push_clip(r, radius);
+    }
     fn pop_clip(&mut self);
 }
 

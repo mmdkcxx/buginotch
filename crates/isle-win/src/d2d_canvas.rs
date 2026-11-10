@@ -367,6 +367,36 @@ impl Canvas for D2dCanvas<'_> {
         }
     }
 
+    fn push_clip_out(&mut self, r: Rect, radius: f32) {
+        unsafe {
+            let built = (|| {
+                let factory = self.ctx.GetFactory().ok()?;
+                let everything: ID2D1Geometry = factory.CreateRectangleGeometry(&D2D_RECT_F { left: -1e5, top: -1e5, right: 1e5, bottom: 1e5 }).ok()?.cast().ok()?;
+                let hole = self.rounded_geometry(r, radius)?;
+                // Even-odd fill of "everything" plus the shape leaves everything but the shape.
+                let group = factory.CreateGeometryGroup(D2D1_FILL_MODE_ALTERNATE, &[Some(everything), Some(hole)]).ok()?;
+                group.cast::<ID2D1Geometry>().ok()
+            })();
+            if let Some(g) = built {
+                let params = D2D1_LAYER_PARAMETERS1 {
+                    contentBounds: D2D_RECT_F { left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 },
+                    geometricMask: std::mem::ManuallyDrop::new(Some(g)),
+                    maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    maskTransform: Matrix3x2::identity(),
+                    opacity: 1.0,
+                    opacityBrush: std::mem::ManuallyDrop::new(None),
+                    layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+                };
+                self.ctx.PushLayer(&params, None);
+                drop(std::mem::ManuallyDrop::into_inner(params.geometricMask));
+                self.clips.push(true);
+                return;
+            }
+            // Could not build the mask: keep the shadow off entirely rather than over the glass.
+            self.ctx.PushAxisAlignedClip(&D2D_RECT_F { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            self.clips.push(false);
+        }
+    }
     fn pop_clip(&mut self) {
         unsafe {
             match self.clips.pop() {

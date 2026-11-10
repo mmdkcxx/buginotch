@@ -183,20 +183,14 @@ impl App {
         let drop = 4.0 + 14.0 * grow;
         const LAYERS: i32 = 12;
         let alpha = (3.0 + 2.0 * grow) as u8;
-        let outside = [
-            Rect { x: x - 80.0, y: h - 0.5, w: w + 160.0, h: 120.0 },
-            Rect { x: x - 80.0, y: 0.0, w: 80.5, h },
-            Rect { x: x + w - 0.5, y: 0.0, w: 80.5, h },
-        ];
-        for clip in outside {
-            c.push_clip(clip, 0.0);
-            for i in 0..LAYERS {
-                let e = reach * (i + 1) as f32 / LAYERS as f32;
-                let rect = Rect { x: x - e, y: -e - r, w: w + 2.0 * e, h: h + r + 2.0 * e + drop };
-                c.fill_round_rect(rect, r + e, Color(0, 0, 0, alpha));
-            }
-            c.pop_clip();
+        // Everything outside the glass shape, with its exact rounded corners.
+        c.push_clip_out(Rect { x, y: -r, w, h: h + r }, r);
+        for i in 0..LAYERS {
+            let e = reach * (i + 1) as f32 / LAYERS as f32;
+            let rect = Rect { x: x - e, y: -e - r, w: w + 2.0 * e, h: h + r + 2.0 * e + drop };
+            c.fill_round_rect(rect, r + e, Color(0, 0, 0, alpha));
         }
+        c.pop_clip();
     }
 
     pub fn set_glass(&mut self, on: bool) {
