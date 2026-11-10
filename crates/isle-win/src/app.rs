@@ -415,7 +415,7 @@ impl App {
     }
 
     /// Mouse wheel over the notch: the page gets it first (lists scroll); otherwise it turns the
-    /// page (wheel down = next). One turn per 280 ms so a trackpad flick moves a single page.
+    /// page (wheel down = next). One turn per 150 ms so a trackpad flick moves a single page.
     pub fn wheel(&mut self, steps: f32) -> bool {
         if !self.open || steps == 0.0 {
             return false;
@@ -424,7 +424,7 @@ impl App {
             return true;
         }
         let now = epoch_ms();
-        if now - self.wheel_turned_ms < 280 {
+        if now - self.wheel_turned_ms < 150 {
             return false;
         }
         let before = self.registry.current();

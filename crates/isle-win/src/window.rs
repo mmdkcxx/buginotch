@@ -900,9 +900,20 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_MOUSEWHEEL => {
             let steps = ((wparam.0 >> 16) as i16) as f32 / 120.0;
-            let redraw = APP.with(|a| a.borrow_mut().as_mut().is_some_and(|app| app.wheel(steps)));
+            // Like a click on the arrows: the page slide must be driven (kick), and the window may
+            // have to change size for the new page (lyrics), or the animation stalls and lags.
+            let redraw = APP.with(|a| {
+                a.borrow_mut().as_mut().is_some_and(|app| {
+                    let r = app.wheel(steps);
+                    let resized = app.sync_lyrics();
+                    r || resized
+                })
+            });
             if redraw {
+                sync_input(hwnd);
+                apply_window_size(hwnd);
                 draw(hwnd);
+                kick(hwnd);
             }
             LRESULT(0)
         }
