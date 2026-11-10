@@ -3,6 +3,7 @@
 //! so everything is unit-tested on Linux.
 
 pub mod airpods;
+pub mod ayat;
 pub mod clipboard;
 pub mod digioh;
 pub mod digioh_layout;

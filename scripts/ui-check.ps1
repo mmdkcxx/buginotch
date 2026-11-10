@@ -1,6 +1,6 @@
 # Captures every Buginotch page in one look (solid, dark glass or light glass) over one backdrop.
 # Called by scripts/ui-check.sh. Needs a Windows desktop; it moves the mouse and takes screenshots.
-param([string]$Exe, [string]$Out, [string]$Look, [string]$Backdrop, [int]$Pages = 11)
+param([string]$Exe, [string]$Out, [string]$Look, [string]$Backdrop, [int]$Pages = 12)
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 Add-Type -Name W -Namespace N -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(int f,int x,int y,int d,int e);'
 function Click($x,$y){[N.W]::SetCursorPos($x,$y);Start-Sleep -Milliseconds 120;[N.W]::mouse_event(2,0,0,0,0);Start-Sleep -Milliseconds 60;[N.W]::mouse_event(4,0,0,0,0)}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Notch state: hover, open/close, and the springs that animate its size.
 
-use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule, clipboard::ClipboardModule, shelf::ShelfModule, water::WaterModule, widgets::WidgetsModule, notifications::NotificationsModule, update::UpdateModule, digioh::DigiohModule, usage::UsageModule};
+use crate::modules::{charging::ChargingModule, clock::ClockModule, timer::TimerModule, todo::TodoModule, clipboard::ClipboardModule, shelf::ShelfModule, water::WaterModule, widgets::WidgetsModule, notifications::NotificationsModule, update::UpdateModule, digioh::DigiohModule, usage::UsageModule, ayat::AyatModule};
 use crate::system::{epoch_ms, local_time};
 use crate::ui::{self, Header};
 use isle_logic::canvas::{Align, Canvas, Color, Rect, fit_text};
@@ -100,6 +100,7 @@ impl App {
         registry.add(Box::new(NotificationsModule::new()));
         registry.add(Box::new(DigiohModule::new()));
         registry.add(Box::new(UsageModule::new()));
+        registry.add(Box::new(AyatModule::new()));
         registry.add(Box::new(UpdateModule::new()));
         App {
             registry,

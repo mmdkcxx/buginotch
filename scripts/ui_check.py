@@ -14,7 +14,7 @@ import struct
 import sys
 import zlib
 
-PAGES = ["Musik", "Timer", "To-do", "Clipboard", "Shelf", "Air minum", "Widget", "Notifikasi", "Digioh", "Claude", "Pembaruan"]
+PAGES = ["Musik", "Timer", "To-do", "Clipboard", "Shelf", "Air minum", "Widget", "Notifikasi", "Digioh", "Claude", "Pembaruan", "Ayat"]
 LOOKS = ["solid", "dark", "light"]
 W, H = 800, 270
 # Shape of the open notch inside a shot (540x184 DIP at 100%), centred at x=400.

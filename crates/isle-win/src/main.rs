@@ -2,6 +2,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod ayat_win;
 mod backdrop;
 mod digioh;
 mod d2d_canvas;
