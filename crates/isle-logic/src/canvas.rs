@@ -122,6 +122,21 @@ pub fn wrap_lines(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, max_w:
     out
 }
 
+/// Like `wrap_lines` but each paragraph (text between line breaks) is wrapped on its own, so a
+/// line break starts a new line instead of being drawn inside one line (where it overlaps).
+/// Blank lines are skipped; at most `max_lines` lines come back in total.
+pub fn wrap_paragraphs(c: &mut dyn Canvas, text: &str, size: f32, weight: u16, max_w: f32, max_lines: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for para in text.lines().map(str::trim).filter(|p| !p.is_empty()) {
+        out.extend(wrap_lines(c, para, size, weight, max_w, max_lines));
+        if out.len() >= max_lines {
+            out.truncate(max_lines);
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod fit_tests {
     use super::*;
@@ -146,6 +161,15 @@ mod fit_tests {
         }
         // Full text is 42 wide; "日本…" is 38, so max 40 fits the prefix but not the whole text.
         assert_eq!(fit_text(&mut W, "日本語", 14.0, 400, 40.0), "日本…");
+    }
+
+    #[test]
+    fn wrap_paragraphs_starts_a_new_line_at_each_line_break() {
+        let mut c = crate::testing::RecordingCanvas::default(); // 7 px per char, 70 px = 10 chars
+        let out = wrap_paragraphs(&mut c, "aaaa bbbb cccc\n\n  dd  \r\nee", 12.0, 400, 70.0, 10);
+        assert_eq!(out, vec!["aaaa bbbb", "cccc", "dd", "ee"]);
+        assert!(out.iter().all(|l| !l.contains('\n') && !l.contains('\r')));
+        assert_eq!(wrap_paragraphs(&mut c, "a\nb\nc\nd", 12.0, 400, 70.0, 2), vec!["a", "b"]);
     }
 
     #[test]

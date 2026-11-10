@@ -4,7 +4,7 @@
 
 use crate::notif_win;
 use crate::system::{epoch_ms, local_time};
-use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_lines};
+use isle_logic::canvas::{Align, Canvas, Color, ImageId, Rect, fit_text, wrap_paragraphs};
 use std::collections::HashMap;
 use isle_logic::module::{Event, Module, PillItem, Reaction};
 use isle_logic::notifs::{Feed, Notif, arrange, letter, scroll_offset, snippet, tile_color, SCROLL_PX_PER_S};
@@ -120,7 +120,7 @@ impl NotificationsModule {
             let a = ((e - 0.35) / 0.65).clamp(0.0, 1.0);
             let tx = r.x + 50.0;
             let tw = big_w - 63.0;
-            let full_title = if n.title.is_empty() { &n.app } else { &n.title };
+            let full_title = &one_line(if n.title.is_empty() { &n.app } else { &n.title });
             let title_w = c.measure_text(full_title, 13.0, 650);
             if e > 0.98 && title_w > tw {
                 // Too long for the card: glide it sideways until the end shows.
@@ -137,7 +137,7 @@ impl NotificationsModule {
             c.draw_text(&meta, Rect { x: tx, y: r.y + 26.0, w: tw, h: 14.0 }, 10.5, 400, alpha(DIM, a), Align::Left);
             let body = if n.title.is_empty() { "" } else { n.body.as_str() };
             const VISIBLE: usize = 3;
-            let lines = wrap_lines(c, body, 13.0, 400, big_w - 26.0, 60);
+            let lines = wrap_paragraphs(c, body, 13.0, 400, big_w - 26.0, 60);
             let dy = if e > 0.98 && lines.len() > VISIBLE {
                 // More lines than fit: roll them upwards until the last one is shown.
                 scrolling = true;
@@ -180,6 +180,11 @@ fn tile(c: &mut dyn Canvas, r: Rect, app: &str, size: f32, logo: Option<ImageId>
     let (cr, cg, cb) = tile_color(app);
     c.fill_round_rect(r, r.w * 0.27, Color(cr, cg, cb, 255));
     c.draw_text(&letter(app).to_string(), Rect { y: r.y + (r.h - size - 4.0) / 2.0, h: size + 4.0, ..r }, size, 700, WHITE, Align::Center);
+}
+
+/// A single line: line breaks and tabs become spaces.
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn short(text: &str, max: usize) -> String {
@@ -327,5 +332,5 @@ impl Module for NotificationsModule {
 }
 
 fn side_label(n: &Notif) -> String {
-    if n.title.is_empty() { n.body.clone() } else { n.title.clone() }
+    one_line(if n.title.is_empty() { &n.body } else { &n.title })
 }
