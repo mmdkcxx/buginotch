@@ -6,60 +6,71 @@
 <meta name="color-scheme" content="dark light">
 <title>Isle Shelf</title>
 <style>
-:root{--bg:#f4f6fa;--card:#fff;--card2:#eef1f6;--line:#dfe3ea;--fg:#14171c;--dim:#6a717d;--blue:#2563eb;--blue2:#1d4ed8;--green:#12a06a;--red:#e5484d;--glow:rgba(37,99,235,.20);--zone:#fff}
-@media (prefers-color-scheme: dark){:root{--bg:#0a0c10;--card:#12151b;--card2:#1a1f29;--line:#1f2530;--fg:#f4f6fa;--dim:#8d95a3;--blue:#5b9bff;--blue2:#2f6df0;--green:#34d399;--red:#ff6b70;--glow:rgba(59,130,246,.38);--zone:#131a2a}}
+:root{--bg:#f5f6f9;--card:#fff;--seg:#e7e9ef;--line:#e3e6ec;--line2:#edf0f4;--fg:#14171c;--dim:#7a8190;--blue:#2563eb;--green:#14a06b;--red:#e5484d;--dash:#b8c0cf;--ink:#14171c}
+@media (prefers-color-scheme: dark){:root{--bg:#0d0f13;--card:#171a20;--seg:#1c2027;--line:#262b34;--line2:#20242c;--fg:#f1f3f6;--dim:#8d95a3;--blue:#5b9bff;--green:#34d399;--red:#ff6b70;--dash:#3a4150;--ink:#f1f3f6}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;min-height:100vh;padding:max(18px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));position:relative;overflow-x:hidden}
-body:before{content:"";position:absolute;left:-40px;right:-40px;top:-60px;height:300px;background:radial-gradient(60% 60% at 50% 40%,var(--glow),transparent 70%);pointer-events:none}
-main{max-width:480px;margin:0 auto;position:relative}
-.head{display:flex;align-items:center;justify-content:space-between}
-h1{font-size:22px;margin:0;font-weight:800;letter-spacing:-.01em}
-.live{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent);padding:6px 11px;border-radius:99px}
-.live i{width:7px;height:7px;border-radius:4px;background:currentColor}
-.live.bad{color:var(--red);background:color-mix(in srgb,var(--red) 14%,transparent)}
-.pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;width:100%;margin-top:22px;height:196px;border:1px solid var(--line);border-radius:28px;background:var(--zone);color:var(--fg);font:inherit;cursor:pointer}
-.pick .big{width:72px;height:72px;border-radius:36px;background:linear-gradient(180deg,var(--blue),var(--blue2));display:flex;align-items:center;justify-content:center;box-shadow:0 10px 26px -6px var(--blue2)}
-.pick b{font-size:17px;font-weight:700}
-.pick small{font-size:12.5px;color:var(--dim);margin-top:-8px}
-.pick:active .big{transform:scale(.96)}
-.pick.drag{border-color:var(--blue)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;min-height:100vh;padding:max(18px,env(safe-area-inset-top)) 16px max(28px,env(safe-area-inset-bottom))}
+main{max-width:480px;margin:0 auto}
+.top{display:flex;align-items:center;gap:11px}
+.logo{width:38px;height:38px;border-radius:12px;background:var(--ink);display:flex;align-items:center;justify-content:center}
+.top b{font-size:18px;font-weight:800;display:block;line-height:1.1}
+.top small{font-size:12px;color:var(--green);font-weight:600;display:flex;align-items:center;gap:5px;margin-top:2px}
+.top small i{width:6px;height:6px;border-radius:3px;background:currentColor}
+.top small.bad{color:var(--red)}
+.seg{margin-top:18px;display:flex;background:var(--seg);border-radius:15px;padding:4px}
+.seg button{flex:1;border:0;background:none;font:inherit;font-size:14px;font-weight:700;color:var(--dim);padding:9px 0;border-radius:12px;cursor:pointer}
+.seg button.on{background:var(--card);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.16)}
+.seg em{font-style:normal;font-size:11px;background:var(--blue);color:#fff;border-radius:99px;padding:1px 7px;margin-left:5px}
+.seg em[hidden]{display:none}
+.zone{margin-top:16px;border:1.5px dashed var(--dash);border-radius:24px;height:132px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:var(--card);cursor:pointer}
+.zone.drag{border-color:var(--blue)}
+.zone b{font-size:15.5px}
+.zone small{font-size:12.5px;color:var(--dim)}
+.add{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:52px;margin-top:10px;border:0;border-radius:16px;background:var(--blue);color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
 input[type=file]{display:none}
-h2{font-size:11.5px;letter-spacing:.08em;color:var(--dim);margin:24px 2px 9px;text-transform:uppercase;font-weight:700}
-.item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:11px 13px;margin-bottom:9px}
-.ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;color:#fff;flex-shrink:0;background:#6b7280}
+.list{margin-top:18px;background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--line)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.row+.row{border-top:1px solid var(--line2)}
+.th{width:42px;height:42px;border-radius:11px;flex-shrink:0;background:#6b7280 center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff}
 .n{flex:1;min-width:0}
-.n b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n b{display:block;font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .n small{font-size:12px;color:var(--dim)}
-.n small.bad{color:var(--red)}
-.n small.ok{color:var(--green)}
-.bar{height:4px;border-radius:2px;background:var(--card2);margin-top:7px;overflow:hidden}
-.bar i{display:block;height:100%;width:0;background:var(--blue);border-radius:2px;transition:width .15s}
-.dl{flex-shrink:0;width:36px;height:36px;border-radius:18px;background:var(--card2);display:flex;align-items:center;justify-content:center;text-decoration:none}
-.empty{color:var(--dim);font-size:13.5px;padding:4px 2px;line-height:1.5}
+.st{font-size:12px;font-weight:700;color:var(--green);flex-shrink:0}
+.st.bad{color:var(--red)}
+.st.go{color:var(--blue)}
+.meter{height:4px;border-radius:2px;background:var(--seg);margin-top:7px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--blue);border-radius:2px;transition:width .15s}
+.dl{flex-shrink:0;height:34px;padding:0 14px;border-radius:17px;background:var(--seg);color:var(--blue);display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;text-decoration:none}
+.empty{color:var(--dim);font-size:14px;line-height:1.55;text-align:center;padding:34px 20px}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
 <main>
-<div class="head"><h1>Isle Shelf</h1><span id="st" class="live"><i></i><span>Terhubung</span></span></div>
-<label class="pick" id="pick" for="file">
-<span class="big"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
-<b>Tambah file</b><small>Foto, video, atau file apa saja ke PC</small>
-</label>
+<div class="top"><div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9a3 3 0 013-3h12a3 3 0 013 3v1H3z"/><path d="M5 10v6a3 3 0 003 3h8a3 3 0 003-3v-6"/></svg></div><div><b>Isle Shelf</b><small id="st"><i></i><span>Terhubung ke PC</span></small></div></div>
+<div class="seg"><button id="t1" class="on" type="button">Kirim</button><button id="t2" type="button">Dari PC<em id="cnt" hidden>0</em></button></div>
+<section id="p1">
+<label class="zone" id="zone" for="file"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V5"/><path d="M7 9.5L12 5l5 4.5"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg><b>Pilih file untuk dikirim</b><small>Foto, video, atau file apa saja. Hingga 2 GB</small></label>
+<label class="add" for="file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Tambah file</label>
 <input id="file" type="file" multiple>
-<div id="upwrap" hidden><h2>Dikirim</h2><div id="up"></div></div>
-<h2>Dari PC</h2>
-<div id="down"><div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div></div>
+<div class="list" id="up" hidden></div>
+</section>
+<section id="p2" hidden>
+<div class="list" id="down"><div class="empty">Belum ada file dari PC.<br>Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div></div>
+</section>
 </main>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
   var T = q.get("t") || "";
   try { if (T) sessionStorage.setItem("t", T); else T = sessionStorage.getItem("t") || ""; } catch (e) {}
-  var up = document.getElementById("up"), upwrap = document.getElementById("upwrap"), down = document.getElementById("down"), st = document.getElementById("st");
+  var $ = function (id) { return document.getElementById(id); };
+  var up = $("up"), down = $("down"), st = $("st"), cnt = $("cnt");
   var queue = [], busy = false;
   var COLORS = {pdf: "#e5484d", png: "#22a559", jpg: "#2f80c9", jpeg: "#2f80c9", heic: "#c98a2f", mov: "#4b5563", mp4: "#4b5563", zip: "#8b5cf6", txt: "#6b7280", doc: "#2563eb", docx: "#2563eb", xls: "#16a34a", xlsx: "#16a34a"};
   function ext(n) { var m = /\.([^.]+)$/.exec(n); return m ? m[1].toLowerCase() : ""; }
-  function tile(n) { var e = ext(n); return '<div class="ic" style="background:' + (COLORS[e] || "#6b7280") + '">' + (e.slice(0, 4).toUpperCase() || "FILE") + '</div>'; }
+  function color(n) { return COLORS[ext(n)] || "#6b7280"; }
+  function label(n) { return ext(n).slice(0, 4).toUpperCase() || "FILE"; }
   function size(n) {
     if (n < 1024) return n + " B";
     if (n < 1048576) return (n / 1024).toFixed(0) + " KB";
@@ -67,6 +78,13 @@ h2{font-size:11.5px;letter-spacing:.08em;color:var(--dim);margin:24px 2px 9px;te
     return (n / 1073741824).toFixed(2).replace(".", ",") + " GB";
   }
   function esc(s) { return s.replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
+
+  function tab(n) {
+    $("p1").hidden = n !== 1; $("p2").hidden = n !== 2;
+    $("t1").className = n === 1 ? "on" : ""; $("t2").className = n === 2 ? "on" : "";
+  }
+  $("t1").onclick = function () { tab(1); };
+  $("t2").onclick = function () { tab(2); };
 
   // Safari can show HEIC photos, so redraw them as JPEG before sending. Other browsers send the file as it is.
   function heicToJpeg(f) {
@@ -83,13 +101,21 @@ h2{font-size:11.5px;letter-spacing:.08em;color:var(--dim);margin:24px 2px 9px;te
     });
   }
 
+  function thumb(el, f, name) {
+    el.textContent = label(name); el.style.backgroundColor = color(name); el.style.backgroundImage = "";
+    if (/^image\/(jpeg|png|gif|webp)$/.test(f.type)) { el.textContent = ""; el.style.backgroundImage = "url(" + URL.createObjectURL(f) + ")"; }
+  }
+
   function add(files) {
     for (var i = 0; i < files.length; i++) {
       var f = files[i], row = document.createElement("div");
-      row.className = "item";
-      row.innerHTML = tile(f.name) + '<div class="n"><b>' + esc(f.name) + '</b><small>' + size(f.size) + ' · menunggu</small><div class="bar"><i></i></div></div>';
+      row.className = "row";
+      row.innerHTML = '<div class="th"></div><div class="n"><b></b><small></small><div class="meter"><i></i></div></div><span class="st">Menunggu</span>';
+      row.querySelector("b").textContent = f.name;
+      row.querySelector("small").textContent = size(f.size);
+      thumb(row.querySelector(".th"), f, f.name);
       up.insertBefore(row, up.firstChild);
-      upwrap.hidden = false;
+      up.hidden = false;
       queue.push({file: f, row: row});
     }
     next();
@@ -97,60 +123,64 @@ h2{font-size:11.5px;letter-spacing:.08em;color:var(--dim);margin:24px 2px 9px;te
   function next() {
     if (busy || !queue.length) return;
     busy = true;
-    var job = queue.shift(), f = job.file, name = f.name, body = f;
-    var small = job.row.querySelector("small"), bar = job.row.querySelector("i"), label = job.row.querySelector("b");
+    var job = queue.shift(), f = job.file, name = f.name, body = f, r = job.row;
+    var small = r.querySelector("small"), bar = r.querySelector("i"), title = r.querySelector("b"), badge = r.querySelector(".st");
     function go() {
       var x = new XMLHttpRequest();
+      badge.textContent = "0%"; badge.className = "st go";
       x.open("POST", "/api/upload?name=" + encodeURIComponent(name));
       x.setRequestHeader("X-Token", T);
       x.upload.onprogress = function (e) {
-        if (e.lengthComputable) { bar.style.width = (100 * e.loaded / e.total) + "%"; small.textContent = size(e.loaded) + " dari " + size(e.total); }
+        if (!e.lengthComputable) return;
+        var pc = 100 * e.loaded / e.total;
+        bar.style.width = pc + "%"; badge.textContent = Math.floor(pc) + "%"; small.textContent = size(e.loaded) + " dari " + size(e.total);
       };
       function end(ok, msg) {
         busy = false;
-        bar.style.width = ok ? "100%" : "0";
-        small.textContent = ok ? size(body.size) + " · terkirim ke PC" : msg;
-        small.className = ok ? "ok" : "bad";
+        bar.parentNode.hidden = ok;
+        small.textContent = ok ? size(body.size) : msg;
+        badge.textContent = ok ? "✓ Terkirim" : "Gagal"; badge.className = ok ? "st" : "st bad";
         next();
       }
       x.onload = function () { end(x.status === 200, x.status === 413 ? "Terlalu besar (maks 2 GB)" : x.status === 401 ? "Pindai ulang kode QR di PC" : "Gagal (" + x.status + ")"); };
-      x.onerror = function () { end(false, "Gagal, PC tidak terjangkau"); };
+      x.onerror = function () { end(false, "PC tidak terjangkau"); };
       x.send(body);
     }
     if (/^(heic|heif)$/.test(ext(name))) {
       small.textContent = "Mengubah ke JPG…";
       heicToJpeg(f).then(function (b) {
-        if (b) { body = b; name = name.replace(/\.[^.]+$/, ".jpg"); label.textContent = name; job.row.firstChild.outerHTML = tile(name); }
+        if (b) { body = b; name = name.replace(/\.[^.]+$/, ".jpg"); title.textContent = name; thumb(r.querySelector(".th"), b, name); }
         go();
       });
     } else {
       go();
     }
   }
-  var inp = document.getElementById("file");
+  var inp = $("file");
   inp.onchange = function () { add(inp.files); inp.value = ""; };
-  var pick = document.getElementById("pick");
-  pick.ondragover = function (e) { e.preventDefault(); pick.classList.add("drag"); };
-  pick.ondragleave = function () { pick.classList.remove("drag"); };
-  pick.ondrop = function (e) { e.preventDefault(); pick.classList.remove("drag"); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
+  var zone = $("zone");
+  zone.ondragover = function (e) { e.preventDefault(); zone.classList.add("drag"); };
+  zone.ondragleave = function () { zone.classList.remove("drag"); };
+  zone.ondrop = function (e) { e.preventDefault(); zone.classList.remove("drag"); if (e.dataTransfer.files.length) add(e.dataTransfer.files); };
 
-  var DL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12"/><path d="M6.5 11.5L12 17l5.5-5.5"/><path d="M5 20h14"/></svg>';
-  var EMPTY = '<div class="empty">Belum ada file. Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div>';
-  var last = "";
+  var DL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12"/><path d="M6.5 11.5L12 17l5.5-5.5"/><path d="M5 20h14"/></svg>';
+  var EMPTY = '<div class="empty">Belum ada file dari PC.<br>Di Shelf, tandai file dengan tombol ponsel kecil di tile.</div>';
+  var last = null;
   function refresh() {
     fetch("/api/list", {headers: {"X-Token": T}}).then(function (r) {
       if (!r.ok) throw 0;
-      st.className = "live"; st.lastChild.textContent = "Terhubung";
+      st.className = ""; st.lastChild.textContent = "Terhubung ke PC";
       return r.json();
     }).then(function (items) {
       var key = JSON.stringify(items);
       if (key === last) return;
       last = key;
+      cnt.hidden = !items.length; cnt.textContent = items.length;
       if (!items.length) { down.innerHTML = EMPTY; return; }
       down.innerHTML = items.map(function (it) {
-        return '<div class="item">' + tile(it.name) + '<div class="n"><b>' + esc(it.name) + '</b><small>' + size(it.size) + '</small></div><a class="dl" aria-label="Unduh" download="' + esc(it.name) + '" href="/f/' + it.id + '?t=' + encodeURIComponent(T) + '">' + DL + '</a></div>';
+        return '<div class="row"><div class="th" style="background-color:' + color(it.name) + '">' + label(it.name) + '</div><div class="n"><b>' + esc(it.name) + '</b><small>' + size(it.size) + '</small></div><a class="dl" download="' + esc(it.name) + '" href="/f/' + it.id + '?t=' + encodeURIComponent(T) + '">' + DL + 'Unduh</a></div>';
       }).join("");
-    }).catch(function () { st.className = "live bad"; st.lastChild.textContent = "Terputus"; });
+    }).catch(function () { st.className = "bad"; st.lastChild.textContent = "Terputus. Pindai QR lagi"; });
   }
   refresh();
   setInterval(refresh, 4000);
